@@ -267,26 +267,35 @@ def cmd_demo(args) -> int:
     out_dir = os.path.join(root, "output", "demo")
     os.makedirs(out_dir, exist_ok=True)
 
-    args.config = os.path.join(root, "config", "spp.ini")
-    args.obs = obs
-    args.nav = nav
-    args.out_dir = out_dir
-    args.stop = None
-    args.mode = "DUAL_IF"
-    args.verbose = False
+    # Build the full argument set explicitly rather than reusing the demo
+    # parser's namespace: cmd_plot and cmd_spp expect options that the `demo`
+    # subcommand deliberately does not expose (it is meant to take no
+    # arguments), and a hand-written namespace keeps the two in step.
+    from argparse import Namespace
 
     print("Running the bundled sample dataset (station WUH2, 63 epochs).\n")
-    rc = cmd_spp(args)
+
+    solver_args = Namespace(
+        config=os.path.join(root, "config", "spp.ini"),
+        obs=obs, nav=nav, out_dir=out_dir,
+        stop=None, mode="DUAL_IF", verbose=False,
+    )
+    rc = cmd_spp(solver_args)
     if rc != 0:
         return rc
 
     print()
-    args.out_dir = out_dir
-    args.rinex = obs
-    args.spp_out = None
-    args.pos_vel = None
-    args.png_dir = os.path.join(root, "docs", "figures") if args.docs_figures else out_dir
-    return cmd_plot(args)
+    plot_args = Namespace(
+        rinex=obs, spp_out=None, pos_vel=None,
+        out_dir=out_dir,
+        png_dir=(os.path.join(root, "docs", "figures") if args.docs_figures else out_dir),
+        mode="DUAL_IF",
+        station=args.station,
+        lang=args.lang,
+        no_figures=False,
+        report=True,
+    )
+    return cmd_plot(plot_args)
 
 
 def cmd_app(args) -> int:

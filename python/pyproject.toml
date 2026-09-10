@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gnss-plot"
+version = "1.0.0"
+description = "Accuracy analysis and plotting for the GnssLab GNSS processing engine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MulanPSL-2.0" }
+authors = [
+    { name = "吴东昊" },
+]
+keywords = ["gnss", "gps", "beidou", "spp", "rinex", "geodesy", "visualization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "numpy>=1.21",
+    "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+gnss = "gnss_plot.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
+python_files = ["test_*.py"]

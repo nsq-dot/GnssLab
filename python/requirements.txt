@@ -1,0 +1,13 @@
+# Runtime dependencies for gnss_plot.
+#
+# pyproject.toml is the source of truth (it is what registers the `gnss`
+# console script); this file exists for people who just want the libraries
+# without installing the package.
+#
+#   pip install -r python/requirements.txt
+#
+# Versions are floors, not pins: the two dependencies are stable and widely
+# available, so pinning would create more resolution conflicts than it prevents.
+
+numpy>=1.21
+matplotlib>=3.5

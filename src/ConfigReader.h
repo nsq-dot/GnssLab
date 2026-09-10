@@ -19,8 +19,24 @@
 
 #include <map>
 #include <string>
+#include <vector>
 #include <stdexcept>
 
+/**
+ * Reads a `key = value` configuration file.
+ *
+ * Format notes, both of which have bitten people:
+ *
+ *  - A line is a comment only when `#` is its *first* non-blank character. An
+ *    inline trailing comment (`key = 1  # note`) is not stripped, so the value
+ *    becomes "1  # note" and the typed accessors will reject it. Put comments on
+ *    their own line.
+ *  - Keys are case-sensitive and surrounding whitespace is trimmed.
+ *
+ * The `getValueAsX()` accessors throw std::runtime_error when a key is missing
+ * or malformed. The `getValueAsXOr()` variants return a caller-supplied default
+ * instead, which is what you usually want for an optional setting.
+ */
 class ConfigReader {
 private:
     std::map<std::string, std::string> config;
@@ -38,6 +54,8 @@ private:
 public:
     ConfigReader(const std::string &filename);
 
+    // --- throwing accessors: the key must be present and well-formed ---
+
     int getValueAsInt(const std::string &key);
 
     std::string getValueAsString(const std::string &key);
@@ -45,6 +63,24 @@ public:
     bool getValueAsBool(const std::string &key);
 
     double getValueAsDouble(const std::string &key);
+
+    // --- non-throwing accessors: absent or malformed yields the default ---
+
+    int getValueAsIntOr(const std::string &key, int defaultValue);
+
+    double getValueAsDoubleOr(const std::string &key, double defaultValue);
+
+    bool getValueAsBoolOr(const std::string &key, bool defaultValue);
+
+    std::string getValueAsStringOr(const std::string &key, const std::string &defaultValue);
+
+    // --- introspection ---
+
+    /// True if the key is present, regardless of whether its value parses.
+    bool has(const std::string &key) const;
+
+    /// Every key found in the file, in sorted order.
+    std::vector<std::string> keys() const;
 };
 
 #endif // CONFIGREADER_H

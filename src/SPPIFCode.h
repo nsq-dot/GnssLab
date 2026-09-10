@@ -41,6 +41,14 @@ public:
     // 新增设置解算模式接口
     void setSolveMode(SolveMode mode) { solveMode = mode; }
 
+    // Elevation mask in degrees; satellites below it are excluded from the solution.
+    void setCutOffElev(double elevDeg) { cutOffElev = elevDeg; }
+
+    // Observation sigma (metres) for the ionosphere-free code combination.
+    // The weight applied is 1/sigma^2, so this is a strong lever on the result:
+    // moving it from 1.0 to 0.3 scales every weight by roughly 11x.
+    void setSigIFCode(double sigma) { sigIFCode = sigma; }
+
     void solve(ObsData &obsData);
 
     std::map<SatID,Xvt> computeSatPos(ObsData &obsData);

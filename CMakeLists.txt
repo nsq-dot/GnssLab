@@ -43,6 +43,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 add_library(gnss STATIC
         src/ARLambda.cpp
         src/CSDetector.cpp
+        src/ConfigData.cpp
         src/ConfigReader.cpp
         src/GnssFunc.cpp
         src/GnssStruct.cpp

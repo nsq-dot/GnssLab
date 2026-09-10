@@ -86,11 +86,93 @@ std::string ConfigReader::getValueAsString(const std::string &key) {
     return getConfigValue(key);
 }
 
+namespace {
+
+// Classify a boolean spelling. Accepts 1/0, true/false, yes/no, on/off,
+// case-insensitively. Returns TRUE/FALSE/UNRECOGNISED so callers can decide
+// whether an unknown spelling is an error (getValueAsBool) or a fallback
+// (getValueAsBoolOr).
+enum BoolSpelling {
+    BOOL_TRUE = 1,
+    BOOL_FALSE = 0,
+    BOOL_UNRECOGNISED = -1
+};
+
+BoolSpelling classifyBool(const std::string &str) {
+    std::string v;
+    v.reserve(str.size());
+    for (char c: str) v.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    if (v == "1" || v == "true" || v == "yes" || v == "on") return BOOL_TRUE;
+    if (v == "0" || v == "false" || v == "no" || v == "off") return BOOL_FALSE;
+    return BOOL_UNRECOGNISED;
+}
+
+}  // namespace
+
 bool ConfigReader::getValueAsBool(const std::string &key) {
     std::string value = getConfigValue(key);
-    return value == "1" || value == "true" || stringToInt(value) != 0;
+
+    // Previously:
+    //     return value == "1" || value == "true" || stringToInt(value) != 0;
+    // The `||` short-circuit means the last term runs only for values that are
+    // neither "1" nor "true", so `est = yes` fell into stringToInt() and threw
+    // "Invalid integer value: yes" rather than being interpreted.
+    BoolSpelling b = classifyBool(value);
+    if (b == BOOL_UNRECOGNISED) {
+        throw std::runtime_error("Invalid boolean value for key '" + key + "': " + value);
+    }
+    return b == BOOL_TRUE;
 }
 
 double ConfigReader::getValueAsDouble(const std::string &key) {
     return stringToDouble(getConfigValue(key));
+}
+
+// --- non-throwing variants -------------------------------------------------
+// These exist so a partial config file is usable: every key is optional and
+// anything absent keeps the caller's default.
+
+int ConfigReader::getValueAsIntOr(const std::string &key, int defaultValue) {
+    auto it = config.find(key);
+    if (it == config.end()) return defaultValue;
+    try {
+        return stringToInt(it->second);
+    } catch (const std::runtime_error &) {
+        return defaultValue;
+    }
+}
+
+double ConfigReader::getValueAsDoubleOr(const std::string &key, double defaultValue) {
+    auto it = config.find(key);
+    if (it == config.end()) return defaultValue;
+    try {
+        return stringToDouble(it->second);
+    } catch (const std::runtime_error &) {
+        return defaultValue;
+    }
+}
+
+bool ConfigReader::getValueAsBoolOr(const std::string &key, bool defaultValue) {
+    auto it = config.find(key);
+    if (it == config.end()) return defaultValue;
+    BoolSpelling b = classifyBool(it->second);
+    if (b == BOOL_UNRECOGNISED) return defaultValue;
+    return b == BOOL_TRUE;
+}
+
+std::string ConfigReader::getValueAsStringOr(const std::string &key, const std::string &defaultValue) {
+    auto it = config.find(key);
+    return (it == config.end()) ? defaultValue : it->second;
+}
+
+bool ConfigReader::has(const std::string &key) const {
+    return config.find(key) != config.end();
+}
+
+std::vector<std::string> ConfigReader::keys() const {
+    std::vector<std::string> result;
+    result.reserve(config.size());
+    for (const auto &kv: config) result.push_back(kv.first);
+    return result;
 }

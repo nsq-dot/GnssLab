@@ -1,0 +1,74 @@
+# ── Build artifacts ────────────────────────────────────────────────────────
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
+# NOTE: deliberately no blanket `*.exe` rule — it would silently drop
+# tools/RNXCMP/*.exe. Binary ignores are anchored to build/ above.
+
+# ── IDE / editor ───────────────────────────────────────────────────────────
+.idea/
+.vscode/
+CMakeUserPresets.json
+
+# ── Python ─────────────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── Generated output (the CLI writes here) ─────────────────────────────────
+output/*
+!output/.gitkeep
+
+# ── Data: inputs are NOT committed, only the small sample ──────────────────
+# `data/*` excludes the directories themselves, and git will not descend into
+# an excluded directory — so each one must be re-included explicitly before
+# its contents can be.
+data/*
+!data/README.md
+!data/.gitkeep
+!data/sample/
+!data/sample/**
+
+# ── Third-party reference PDFs (kept on disk, not redistributable) ─────────
+doc/*
+
+# ── RNXCMP binaries (keep on disk; redistribution terms unconfirmed) ───────
+# The wrapper scripts are committed, the GSI binaries are not. See NOTICE §3
+# and tools/README.md for where to obtain them.
+tools/CRX2RNX.exe
+tools/RNX2CRX.exe
+tools/CRX2RNX_linux
+tools/CRZ2RNX_linux
+tools/RNXCMP.zip
+
+# ── Solver output files ────────────────────────────────────────────────────
+*.spp.out
+*_pos_vel.out
+*_manifest.json
+GNSS_Statistics.csv
+*_TGD_Result.csv
+PL_IonoCompare.csv
+*_Iono.txt
+trop_*.txt
+tx_*.csv
+
+# ...but the frozen regression baselines are source, not output.
+!tests/baseline/
+!tests/baseline/**
+
+# ── Figures: only the curated ones under docs/ are committed ───────────────
+*.png
+!docs/figures/
+!docs/figures/**
+
+# ── Misc ───────────────────────────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db

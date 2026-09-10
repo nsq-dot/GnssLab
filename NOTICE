@@ -1,0 +1,111 @@
+GnssLab
+=======
+
+This product is licensed under the Mulan Permissive Software License,
+Version 2 (MulanPSL-2.0). See the LICENSE file for the full text.
+
+MulanPSL-2.0, Section 4 ("Distribution Restriction"), requires that
+distributors of modified versions of the software state the modifications
+made. This file records them.
+
+
+1. Upstream
+-----------
+
+GnssLab is derived from the teaching framework **gnssLab-2.4** by
+
+    Shoujian Zhang <shjzhang@sgg.whu.edu.cn>
+    School of Geodesy and Geomatics, Wuhan University
+    Copyright (c) 2020
+
+The upstream framework supplies the base library (`src/`), the course-chapter
+example programs (`examples/`), and the bundled reference documents. Portions
+of the upstream sources carry a per-file header declaring MulanPSL-2.0 and
+crediting the same author. Those headers have been retained verbatim.
+
+
+2. Modifications made in this work
+----------------------------------
+
+Copyright (c) 2025 吴东昊. Licensed under MulanPSL-2.0.
+
+**Added** (no upstream equivalent):
+
+    src/NavEphBDS.hpp, src/NavEphBDS.cpp     BeiDou broadcast ephemeris
+                                             (orbit + clock, GEO/IGSO/MEO handling)
+    src/SPPVelocity.h, src/SPPVelocity.cpp   Doppler-based receiver velocity:
+                                             self-contained weighted least-squares
+                                             with robust (MAD) outlier rejection
+    src/ConfigData.cpp                       configuration profile loading
+    apps/system_bias.cpp                     systematic-error diagnostics
+                                             (TGD, ionospheric, tropospheric delay)
+    apps/cs_detect_mw.cpp                    Melbourne-Wübbena cycle-slip detection
+    apps/read_rinex.cpp                      RINEX inventory and statistics
+    apps/bds_gps_diff.cpp                    broadcast-vs-precise orbit comparison
+    apps/bds_eph.cpp                         single-satellite ephemeris comparison
+    apps/matrix_calculator.cpp               Eigen-based matrix calculator
+    apps/spp_if.cpp                          the SPP + velocity driver
+                                             (derived from examples/exam-6.1-sppif.cpp)
+    tools/                                   Hatanaka RINEX compression wrappers
+    python/**                                the gnss_plot accuracy-analysis and
+                                             plotting package, and the `gnss` CLI
+    config/**                                configuration profiles
+    scripts/**                               build and data-acquisition helpers
+    tests/**                                 regression baselines and test suite
+    docs/**                                  project documentation
+    README.md, README.zh-CN.md               project documentation
+
+**Modified**:
+
+    src/SPPIFCode.{h,cpp}      added setCutOffElev() / setSigIFCode() accessors
+    src/ConfigReader.{h,cpp}   added non-throwing getValueAsXOr() accessors;
+                               corrected getValueAsBool() fallback
+    src/ConfigData.h           removed an undefined `extern` global;
+                               converted to an explicit value type
+    src/CoordConvert.h         M_PI -> PI from Const.h (strict C++ conformance)
+    src/NavEphBDS.cpp          M_PI -> PI from Const.h
+    src/SolverKalman.cpp       corrected a type error in getSolution()
+    CMakeLists.txt             rewritten; introduces a static `gnss` library
+
+**Removed**:
+
+    src/SPPUCCodePhase.{h,cpp} undifferenced/undifferenced-combined PPP, part of
+                               the upstream chapter 8 (RTK/PPP) material and not
+                               used by any program in this work
+
+
+3. Third-party components
+-------------------------
+
+**Eigen 3.4.0** — `thirdparty/eigen-3.4.0/`
+
+    Eigen is free software licensed primarily under the Mozilla Public License
+    v2.0 (MPL-2.0), with certain individual files under the BSD 3-Clause,
+    GNU LGPL v2.1, and Apache 2.0 licenses. See `thirdparty/eigen-3.4.0/COPYING.README`
+    for the file-by-file breakdown and the accompanying COPYING.* files.
+
+    Eigen is vendored unmodified except that its benchmark, test, documentation,
+    demo, and unsupported directories have been removed to reduce repository size.
+    No Eigen source file has been altered.
+
+    Eigen is **not** relicensed under MulanPSL-2.0. MulanPSL-2.0 applies only to
+    the portions of this repository authored by the copyright holders named above.
+    Retain the MPL-2.0 notice on Eigen when redistributing.
+
+**RNXCMP** — `tools/`
+
+    The Hatanaka RINEX compression/decompression utilities (CRX2RNX, RNX2CRX) are
+    distributed by the Geospatial Information Authority of Japan (GSI) and are the
+    work of Y. Hatanaka. They are **not** included in this repository; `tools/README.md`
+    documents where to obtain them. Only the convenience wrapper scripts
+    (`CRZ2RNX.BAT`, `RNX2CRZ.BAT`, `CRZ2RNX_linux`, `CRZ2RNX_linux`) are included.
+
+
+4. Reference documents
+----------------------
+
+The RINEX format specifications, the GPS interface specification (ICD-GPS-200C), and
+the SP3 format description may be redistributed and are available from their
+respective publishers (IGS, US Space Force, IGS). Third-party manuals and journal
+articles that were present in the upstream `doc/` directory are **not** redistributed
+here for copyright reasons; `docs/references/README.md` links to them instead.

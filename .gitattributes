@@ -1,0 +1,44 @@
+# Normalize line endings in the repository to LF; check out as-is on all
+# platforms. Source files are declared explicitly so a Windows checkout of a
+# fresh clone cannot introduce CRLF churn into the diff.
+* text=auto eol=lf
+
+*.cpp        text eol=lf
+*.h          text eol=lf
+*.hpp        text eol=lf
+*.c          text eol=lf
+*.py         text eol=lf
+*.md         text eol=lf
+*.ini        text eol=lf
+*.txt        text eol=lf
+*.json       text eol=lf
+*.cmake      text eol=lf
+*.sh         text eol=lf
+CMakeLists.txt text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+*.BAT          text eol=crlf
+
+# Solver output is a *byte-exact regression baseline* — the test compares files
+# with cmp/sha256, so git must not touch the line endings. `-text` disables all
+# EOL conversion. Without this, `text=auto` rewrites CRLF to LF and the frozen
+# baseline hashes in tests/ silently stop matching.
+*.out   -text
+
+# Binary — never diff, never normalize.
+*.pdf   binary
+*.exe   binary
+*.bin   binary
+*.rnx   binary
+*.crx   binary
+*.gz    binary
+*.zip   binary
+*.png   binary
+*.svg   binary
+*.SP3   binary
+*.CLK   binary
+
+# Vendored Eigen is not our code. Keep it out of the language statistics so
+# the repository does not read as a C++ project we did not write.
+thirdparty/eigen-3.4.0/** linguist-vendored linguist-generated=true
+thirdparty/**            linguist-vendored

@@ -1,5 +1,6 @@
 #include "NavEphBDS.hpp"
 #include "CoordStruct.h"
+#include "Const.h"
 #include <iomanip>
 
 using namespace std;
@@ -187,7 +188,7 @@ Xvt NavEphBDS::svXvtGEO(const CommonTime &t) const
     double Z_K = y_orb * sini;
 
     // ====================== 5. R_X(-5°) 旋转 ======================
-    const double geo_rot_angle = -5.0 * M_PI / 180.0;
+    const double geo_rot_angle = -5.0 * PI / 180.0;
     double c5 = cos(geo_rot_angle);
     double s5 = sin(geo_rot_angle);
 

@@ -276,14 +276,14 @@ void SolverKalman::createIndex(const VariableSet &varSet ){
     }
 };
 
-double SolverKalman::getSolution(const Parameter &type,
+double SolverKalman::getSolution(Parameter::ParameterName paraType,
                               VariableSet &currentUnkSet,
                               const VectorXd &stateVec)
 noexcept(false) {
     // Declare an varIterator for 'stateMap' and go to the first element
     auto varIt = currentUnkSet.begin();
     int index(0);
-    while ((*varIt).getParaType() != type) {
+    while ((*varIt).getParaType() != paraType) {
         // If the same type is not found, throw an exception
         if (varIt == currentUnkSet.end()) {
             InvalidRequest e("SolverLSQ::Type not found in state vector.");

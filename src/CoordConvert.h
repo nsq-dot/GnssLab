@@ -19,6 +19,7 @@
 #define GNSSLAB_COORDCONVERT_H
 
 #include "CoordStruct.h"
+#include "Const.h"
 #include "Exception.h"
 #include <Eigen/Eigen>
 
@@ -38,7 +39,7 @@ inline BLH xyz2blh(const XYZ &xyz, const ReferenceFrame &frame) {
     // 判断是否在极点
     if (rho < eps) {
         // 在极点，根据 z 的符号判断是南极还是北极
-        double B = (xyz.Z() > 0) ? M_PI / 2 : -M_PI / 2;  // 北极为 +90°，南极为 -90°
+        double B = (xyz.Z() > 0) ? PI / 2 : -PI / 2;  // 北极为 +90°，南极为 -90°
         double L = 0.0;  // 经度在极点无定义，通常设为 0
         double H = fabs(xyz.Z()) - a * sqrt(1 - e2);  // 高度计算
 

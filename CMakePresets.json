@@ -1,0 +1,95 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default (Ninja, Release)",
+      "description": "Portable preset. Uses whatever compiler CMake finds. Machine-specific toolchain paths belong in CMakeUserPresets.json, which is gitignored.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (Ninja)",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mingw",
+      "displayName": "Windows / MinGW-w64 (Ninja)",
+      "description": "For a MinGW-w64 g++ on PATH, e.g. D:/mingw64/bin.",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_C_COMPILER": "gcc"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "makefiles",
+      "displayName": "Unix Makefiles (fallback when Ninja is absent)",
+      "inherits": "default",
+      "generator": "Unix Makefiles"
+    },
+    {
+      "name": "mingw-makefiles",
+      "displayName": "Windows / MinGW-w64 (MinGW Makefiles)",
+      "description": "Fallback for MinGW when Ninja is not installed.",
+      "inherits": "mingw",
+      "generator": "MinGW Makefiles"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "mingw",
+      "configurePreset": "mingw"
+    },
+    {
+      "name": "makefiles",
+      "configurePreset": "makefiles"
+    },
+    {
+      "name": "mingw-makefiles",
+      "configurePreset": "mingw-makefiles"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mingw",
+      "configurePreset": "mingw",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

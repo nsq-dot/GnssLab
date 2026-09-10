@@ -41,7 +41,10 @@ public:
     void createIndex(const VariableSet &varSet );
 
     int getIndex(const VariableSet &varSet, const Variable &thisVar);
-    double getSolution(const Parameter &type,
+    // Takes a ParameterName, matching SolverLSQ::getSolution. The previous
+    // `const Parameter &` did not agree with the body, which compares against
+    // Variable::getParaType() (a ParameterName), and so did not compile.
+    double getSolution(Parameter::ParameterName paraType,
                        VariableSet &currentUnkSet,
                        const VectorXd &stateVec);
 

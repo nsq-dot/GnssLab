@@ -31,12 +31,29 @@ def xyz2blh(x, y, z):
     p = np.hypot(x, y)
     lat = np.arctan2(z, p * (1 - e2))
 
-    h = np.zeros_like(lat)
-    for _ in range(8):
-        n = a / np.sqrt(1 - e2 * np.sin(lat) ** 2)
-        h = p / np.cos(lat) - n
-        lat = np.arctan2(z, p * (1 - e2 * n / (n + h)))
+    # Height has two equivalent forms, and each is singular where the other is
+    # not: p/cos(lat) - N blows up at the poles (lat = +-90), while
+    # z/sin(lat) - N(1-e2) blows up at the equator (lat = 0). Selecting per point
+    # avoids the 0/0 and the numpy warnings it would otherwise emit.
+    near_equator = np.abs(lat) < 1e-10
 
+    h = np.zeros_like(lat, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # np.where evaluates both branches, so the singular one still divides -
+        # suppressed rather than avoided. Earlier real-time warning filters are
+        # left untouched, and the discarded values are the ones the singular
+        # branch would have produced anyway.
+        for _ in range(8):
+            n = a / np.sqrt(1 - e2 * np.sin(lat) ** 2)
+            h = np.where(
+                near_equator,
+                p / np.cos(lat) - n,
+                z / np.sin(lat) - n * (1 - e2),
+            )
+            lat = np.arctan2(z, p * (1 - e2 * n / (n + h)))
+
+    # At the pole lon is undefined; arctan2(0, 0) yields 0, the conventional
+    # choice, matching the C++ implementation.
     return lat, lon, h
 
 

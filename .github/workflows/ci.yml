@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Release, Debug]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build python3 python3-pip
+
+      - name: Show versions
+        run: |
+          cmake --version | head -1
+          g++ --version | head -1
+          python3 --version
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r python/requirements.txt
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Check all targets were produced
+        run: |
+          expected="spp_if system_bias read_rinex bds_eph bds_gps_diff cs_detect_mw matrix_calculator
+                    parse_opt parse_config gpst_to_utc bdweek_to_commontime jd2020_test ecef_enu_test"
+          missing=0
+          for t in $expected; do
+              if [ ! -x "build/bin/$t" ]; then
+                  echo "::error::missing target $t"
+                  missing=1
+              fi
+          done
+          echo "built $(ls -1 build/bin | wc -l) executables"
+          exit $missing
+
+      # Runs without any data file: it checks the committed baselines and the
+      # analysis code. This is the part that must never fail on a clean checkout.
+      - name: Unit tests
+        run: python3 tests/test_plot_utils.py
+
+      - name: Baseline integrity and statistics
+        run: python3 tests/test_baseline_numerics.py
+
+      # The only test that exercises the whole chain: compiler, solver, output
+      # format, Python analysis. Needs the committed sample dataset.
+      - name: End-to-end regression on the sample dataset
+        run: python3 tests/test_regression_pipeline.py --required
+
+      - name: Figures are generated
+        run: |
+          python3 -m pytest --version >/dev/null 2>&1 || python3 -m pip install pytest
+          PYTHONPATH=python/src python3 -m gnss_plot.cli plot \
+              --rinex data/sample/WUH200CHN_R_20250010000_01D_30S_MO.rnx \
+              --out-dir output/_regression \
+              --png-dir /tmp/figs \
+              --lang en --station "CI"
+          test "$(ls -1 /tmp/figs/*.png 2>/dev/null | wc -l)" -eq 4
+          echo "4 figures written"
+
+      - name: Upload figures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: figures-${{ matrix.build_type }}
+          path: /tmp/figs/*.png
+          if-no-files-found: ignore
+
+  cmake-minimum-version:
+    # The sources claim cmake_minimum_required(3.20). Verify the claim against
+    # the oldest CMake still in common use, rather than against the newest.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build
+      - name: Report CMake version
+        run: cmake --version | head -1
+      - name: Configure with the distribution's CMake
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j "$(nproc)"

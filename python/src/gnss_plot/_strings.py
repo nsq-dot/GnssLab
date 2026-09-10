@@ -22,7 +22,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "axis_east_vel": "vE East [m/s]",
         "axis_north_vel": "vN North [m/s]",
         "axis_up_vel": "vU Up [m/s]",
-        "axis_clk": r"Receiver clock drift $c\cdot\delta\dot{t}_r$ [m/s]",
+        # Plain text, not LaTeX: braces in a format string are read as
+        # placeholders, so "$c\cdot\delta\dot{t}_r$" would raise a KeyError the
+        # moment this label is formatted with any argument.
+        "axis_clk": "Receiver clock drift [m/s]",
 
         "lbl_east": "East",
         "lbl_north": "North",
@@ -68,7 +71,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "axis_east_vel": "vE 东向 [m/s]",
         "axis_north_vel": "vN 北向 [m/s]",
         "axis_up_vel": "vU 天向 [m/s]",
-        "axis_clk": "接收机钟漂 c·δt_r [m/s]",
+        "axis_clk": "接收机钟漂 [m/s]",
 
         "lbl_east": "东",
         "lbl_north": "北",

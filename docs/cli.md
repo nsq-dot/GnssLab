@@ -94,8 +94,13 @@ how the images in the main README were produced.
 ## app
 
 ```
-gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | matrix
+gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | cs-detect-gf | matrix
 ```
+
+The two cycle-slip programs take `[config.ini] [options]` rather than running
+bare — `gnss app cs-detect-gf -- --mode both --obs data/sample/...` — because
+they read `config/cs.ini` for their input paths. See
+[cycle-slip-gf.md](cycle-slip-gf.md).
 
 Runs the corresponding binary from `build/bin/` with the working directory set
 to the project root, so its relative paths resolve correctly. Note that several

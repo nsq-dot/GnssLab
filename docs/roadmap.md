@@ -12,9 +12,16 @@ Stated plainly, because a reader should not have to infer it from the source:
   uses least squares.
 - **No Galileo or GLONASS.** No observation types are selected for either, so
   the `Galileo` / `GLONASS` config keys are inert.
-- **No cycle-slip repair.** `apps/cs_detect_mw` *detects* slips via the
-  Melbourne–Wübbena combination; nothing corrects for them, which is why the
-  velocity solution is the more robust of the two products.
+- **No cycle-slip repair.** `apps/cs_detect_mw` and `apps/cs_detect_gf`
+  *detect* slips, via the Melbourne–Wübbena and geometry-free combinations
+  respectively; nothing corrects for them, which is why the velocity solution is
+  the more robust of the two products.
+- **The geometry-free combination is blind to a whole direction.** Because
+  `f1/f2 = 77/60` exactly for GPS, `lambda1*77 - lambda2*60 = 0`: a slip of
+  `(77k, 60k)` cycles produces no change in `L1 - L2` at all and cannot be
+  detected by any GF-based method. Only a second, independent combination (MW,
+  or a triple-frequency one) covers it. Demonstrated in
+  [cycle-slip-gf.md](cycle-slip-gf.md).
 - **Single-frequency ionospheric correction** is Klobuchar only, and only
   applies on the single-frequency path. The default dual-frequency
   ionosphere-free combination removes the first-order ionospheric delay by
@@ -36,10 +43,30 @@ is unaffected and is the meaningful precision figure. Resolving this needs an
 IGS `.snx` truth coordinate.
 
 **`CSDetector` is a parallel implementation.** `src/CSDetector.*` is a
-class-based cycle-slip detector; `apps/cs_detect_mw.cpp` calls the free function
-`detectCSMW()` in `src/GnssFunc.cpp` instead. Both compile. Wiring the class in,
-or removing it, would resolve the ambiguity — as it stands a reader may not
-realise there are two.
+class-based cycle-slip detector; the programs call the free functions
+`detectCSMW()`, `detectCSGFdiff()` and `detectCSGFpoly()` in
+`src/GnssFunc.cpp` instead. Both compile. Wiring the class in, or removing it,
+would resolve the ambiguity — as it stands a reader may not realise there are
+two, and the class-based one is unfinished (its BeiDou branch is a `// TODO`).
+
+**`RinexObsReader` drops observation types past the 13th, and `spp_if` avoids
+the bug by luck.** `src/RinexObsReader.cpp:67` calls `strip(sysStr)` and discards
+the result — `strip` takes its argument by value — so a continuation line of
+`SYS / # / OBS TYPES` keeps a space as the constellation and the declared count
+is never applied. The same code in `src/GnssFunc.cpp` was fixed while working on
+chapter 7; this copy was left alone because it feeds `spp_if`, whose output is
+frozen byte-for-byte in `tests/baseline/`. `spp_if` only ever selects `C1C`,
+`C2W` and the Doppler codes, all of which sit in the first 13 GPS types, so the
+baseline is unaffected today. A change that selects a type beyond the 13th would
+silently lose it. Fixing this needs the baseline to be re-frozen in the same
+commit.
+
+**Cycle-slip detector state is function-local `static`.** Per the textbook's
+"if you write it as a function, the intermediate state must be `static`", so it
+cannot be reset between runs: processing two files in one process carries the
+first file's windows and epoch stamps into the second. Harmless for the
+one-shot command-line programs, fatal for a test that calls a detector twice.
+The class-based `CSDetector` is the shape that fixes it.
 
 **`SPPIFCode` has one scalar sigma.** Per-constellation weighting (`noiseBD2Code`,
 `noiseBD3Code`) cannot take effect until the class carries a sigma per

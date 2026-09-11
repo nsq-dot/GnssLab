@@ -28,7 +28,8 @@ project report even though the filename no longer carries the chapter number.
 | 4.1 | — | `apps/bds_gps_diff.cpp` | added: broadcast vs precise orbit/clock, full constellation |
 | 5.1 | `exam-5.1-system_bias.cpp` | `apps/system_bias.cpp` | renamed |
 | 6.1 | `exam-6.1-sppif.cpp` | `apps/spp_if.cpp` | **extended** with `src/SPPVelocity.*` (Doppler velocity), a configuration file, and a command line |
-| 7.1 | `exam-7.1-cs_detect_mw.cpp` | `apps/cs_detect_mw.cpp` | renamed |
+| 7.1 | `exam-7.1-cs_detect_mw.cpp` | `apps/cs_detect_mw.cpp` | **fixed and made configurable** — it could not run at all: the data directory string was missing its trailing separator, and three bugs in the free-function RINEX reader (`src/GnssFunc.cpp`) kept the header from ever finishing. Also corrected the BeiDou observation types, which selected band 6 instead of B1I/B2I |
+| 7.3 | — | `apps/cs_detect_gf.cpp` | **written here** — geometry-free combination, two detectors (epoch difference and polynomial fit), with `detectCSGFdiff` / `detectCSGFpoly` in `src/GnssFunc.cpp`. Exercises 1–3 are worked in [cycle-slip-gf.md](cycle-slip-gf.md) |
 | 8.1 | `exam-8.1-sync_obs.cpp` | — | removed (RTK chapter, not part of this work) |
 | 8.2 | `exam-8.2-diff_station.cpp` | — | removed (RTK) |
 | 8.3 | `exam-8.3-lambda.cpp` | — | removed (RTK); `src/ARLambda.cpp` is retained and still compiles |
@@ -45,6 +46,7 @@ The chapters that carry original work rather than a rename:
 | 6 | Doppler velocity: weighted least squares with robust outlier rejection | `src/SPPVelocity.h`, `src/SPPVelocity.cpp` |
 | 5 | Systematic-error diagnostics: TGD, ionospheric and tropospheric delay | `apps/system_bias.cpp` |
 | 7 | Melbourne–Wübbena cycle-slip detection | `apps/cs_detect_mw.cpp` |
+| 7 | Geometry-free cycle-slip detection, and the injection/validation harness for exercises 1–3 | `apps/cs_detect_gf.cpp`, `scripts/inject_cycle_slips.py`, `scripts/check_cycle_slips.py`, [cycle-slip-gf.md](cycle-slip-gf.md) |
 | — | Configuration system | `src/ConfigData.*`, `src/ConfigReader.*`, `config/` |
 | — | Accuracy analysis, plotting, and the unified CLI | `python/` |
 

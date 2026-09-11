@@ -23,7 +23,12 @@
 #include "Exception.h"
 #include <Eigen/Eigen>
 
+// 本头文件的内联函数用它控制调试打印。各 .cpp 按习惯自己定义 debug，
+// 所以这里只提供默认值，不覆盖调用方已经定义的值——否则会触发
+// -Wmacro-redefined，而且调用方的设置会被静默丢弃。
+#ifndef debug
 #define debug 1
+#endif
 
 // 坐标转换函数
 inline BLH xyz2blh(const XYZ &xyz, const ReferenceFrame &frame) {

@@ -9,8 +9,25 @@
 #include "CoordConvert.h"
 #include "RinexNavStore.hpp"
 
-#define debug 1
-#define debugCSMW 1
+// Diagnostics are off by default. These drive per-observation, per-satellite
+// printing inside the epoch loop, which is unusable on a multi-hour 1 Hz file
+// (the zero-baseline set is ~8000 epochs) and drowns out any run you want to
+// read numbers from. Turn them on per-target with e.g.
+//     -DGNSSLAB_DEBUG_PARSER=1 -DGNSSLAB_DEBUG_CSMW=1
+// Only stdout is affected, never the numeric output the regression baseline
+// compares, so flipping these cannot move a baseline.
+#ifndef GNSSLAB_DEBUG_PARSER
+#define GNSSLAB_DEBUG_PARSER 0
+#endif
+#ifndef GNSSLAB_DEBUG_CSMW
+#define GNSSLAB_DEBUG_CSMW 0
+#endif
+
+// CoordConvert.h 已经给 debug 提供了默认值（它自己的内联函数要用），
+// 这里必须先撤销再重定义，否则是宏重定义。
+#undef debug
+#define debug GNSSLAB_DEBUG_PARSER
+#define debugCSMW GNSSLAB_DEBUG_CSMW
 
 void parseRinexHeader(std::fstream &rinexFileStream, RinexHeader &rinexHeader) {
 
@@ -18,17 +35,37 @@ void parseRinexHeader(std::fstream &rinexFileStream, RinexHeader &rinexHeader) {
     XYZ antennaPosition;
     string satSys;
     std::map<string, std::vector<string>> mapObsTypes;
+    // Declared observation-type count per constellation, remembered across the
+    // continuation records of SYS / # / OBS TYPES.
+    std::map<string, int> numObsBySystem;
     while (true) {
         string line;
         getline(rinexFileStream, line);
 
-        cout << "parseRinexHeader:" << line << endl;
+        if (debug) {
+            cout << "parseRinexHeader:" << line << endl;
+        }
 
+        // Running off the end without an END OF HEADER record is a malformed
+        // file. Without this the loop below reads empty lines forever, which
+        // looks like a hang rather than a parse failure.
+        if (line.empty() && rinexFileStream.eof()) {
+            FFStreamError e("RINEX header ended without an END OF HEADER record");
+            throw e;
+        }
+
+        // Take whatever columns 60..79 hold and strip the padding, without
+        // requiring a full 80-character record - this is what RinexObsReader
+        // does, and the two must agree because both read the same files.
+        //
+        // The guard is load-bearing in the other direction too: a file whose
+        // trailing whitespace has been stripped (scripts/make_sample_data.py
+        // produces exactly that, and it is the committed sample) ends its
+        // "END OF HEADER" record at column 72, so a `size() >= 80` test would
+        // never extract a label and the header would never terminate.
         string label;
-        if (line.size() >= 80)
-            label = line.substr(60, 20);
-
-        strip(label);
+        if (line.size() > 60)
+            label = strip(line.substr(60, 20));
 
         if (label == "END OF HEADER") {
             break;
@@ -50,20 +87,39 @@ void parseRinexHeader(std::fstream &rinexFileStream, RinexHeader &rinexHeader) {
             antennaPosition[2] = safeStod(line.substr(28, 14));
             rinexHeader.antennaPosition = antennaPosition;
         } else if (label == "SYS / # / OBS TYPES") {
-            string sysStr;
-            sysStr = line.substr(0, 1);
-            strip(sysStr);
-
-            int numObs;
+            // Same discarded-strip bug as `label` above: a continuation record
+            // starts with a space, which must strip down to "" so the count is
+            // not re-read from a line that does not carry one.
+            string sysStr = strip(line.substr(0, 1));
 
             if (sysStr != "") {
-                numObs = stoi(line.substr(3, 3));
                 satSys = sysStr;
+
+                // The declared count appears only on the first record for a
+                // constellation; a constellation with more than 13 types
+                // continues on further records that leave the system character
+                // blank. Remember the count so the continuation records keep
+                // filling the same list.
+                //
+                // This used to be an uninitialised local, read on the
+                // continuation path - indeterminate, and in practice the loop
+                // condition was false, so every type past the 13th was silently
+                // dropped. On the committed sample that loses GPS L2W and all of
+                // the BeiDou phase, leaving no satellite that can form the
+                // combination at all.
+                numObsBySystem[satSys] = stoi(line.substr(3, 3));
             }
 
             const int maxObsPerLine = 13;
-            for (int i = 0; i < maxObsPerLine && mapObsTypes[satSys].size() < numObs; i++) {
-                std::string typeStr = (line.substr(4 * i + 7, 3));
+            int target = numObsBySystem.count(satSys) ? numObsBySystem[satSys] : 0;
+
+            for (int i = 0; i < maxObsPerLine && (int) mapObsTypes[satSys].size() < target; i++) {
+                size_t start = 4 * i + 7;
+                if (start + 3 > line.size())
+                    break;
+                std::string typeStr = strip(line.substr(start, 3));
+                if (typeStr.empty())
+                    break;
                 // insert into mapObsTypes
                 mapObsTypes[satSys].push_back(typeStr);
             }

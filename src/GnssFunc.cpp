@@ -699,9 +699,13 @@ void detectCSMW(ObsData &obsData,
             C1Type = "C2";   // BDS B1I 伪距
             C2Type = "C7";   // BDS B2I 伪距
         }
-
-        {
+        else {
+            // 未知系统：无法预置观测值类型，MW 组合构不出来，直接判为坏星。
+            // NOTE: this used to be a bare block - without the `else` every
+            // satellite was marked bad here and the erase at the end of the
+            // function emptied obsData for every caller that ran afterwards.
             badSatSet.insert(sat);
+            continue;
         }
 
         // wavelengthMW of MW-combination, see LinearCombination

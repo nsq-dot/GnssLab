@@ -37,6 +37,20 @@ def check(cond: bool, msg: str) -> None:
         failures.append(msg)
 
 
+def normalise_eol(data: bytes) -> bytes:
+    """Drop the CR of CRLF line endings.
+
+    The solver writes its output in text mode, so the C runtime turns "\\n"
+    into "\\r\\n" on Windows and leaves it alone everywhere else. The baseline
+    is a Windows-generated file and stays CRLF in the repository, so the raw
+    bytes differ by platform while every number inside them is the same. Only
+    the terminator is normalised here - the rest is still compared byte for
+    byte, so a changed digit, a changed field width or a changed field order
+    all still fail.
+    """
+    return data.replace(b"\r\n", b"\n")
+
+
 def find_spp() -> str | None:
     for sub in ("build/bin", "build-debug/bin", "cmake-build-debug/bin", "cmake-build-debug", "bin"):
         for name in ("spp_if.exe", "spp_if"):
@@ -94,18 +108,28 @@ def main() -> int:
             check(False, f"{name}: output not produced at {got}")
             continue
         with open(got, "rb") as f1, open(want, "rb") as f2:
-            a, b = f1.read(), f2.read()
+            raw_got, raw_want = f1.read(), f2.read()
+        a, b = normalise_eol(raw_got), normalise_eol(raw_want)
         if a == b:
-            check(True, f"{name}: byte-identical ({len(a)} bytes)")
+            where = "CRLF" if b"\r\n" in raw_want else "LF"
+            check(True, f"{name}: byte-identical modulo line endings "
+                        f"({len(a)} bytes, baseline is {where})")
+            continue
+        ga, gb = a.splitlines(), b.splitlines()
+        check(False, f"{name}: DIFFERS ({len(ga)} vs {len(gb)} lines)")
+        differing = [(i, x, y) for i, (x, y) in enumerate(zip(ga, gb)) if x != y]
+        if differing:
+            i, x, y = differing[0]
+            print(f"        first difference at line {i + 1}:")
+            print(f"          got  {x.decode(errors='replace')}")
+            print(f"          want {y.decode(errors='replace')}")
         else:
-            ga, gb = a.splitlines(), b.splitlines()
-            check(False, f"{name}: DIFFERS ({len(ga)} vs {len(gb)} lines)")
-            for i, (x, y) in enumerate(zip(ga, gb)):
-                if x != y:
-                    print(f"        first difference at line {i + 1}:")
-                    print(f"          got  {x.decode(errors='replace')}")
-                    print(f"          want {y.decode(errors='replace')}")
-                    break
+            # Every line matches once the terminators are normalised, so the
+            # two files differ in trailing whitespace or in whether the last
+            # line carries a terminator at all.
+            print("        every line matches after normalising line endings; "
+                  "the files differ in trailing whitespace or in the final "
+                  "newline")
 
     # The manifest is what the Python layer uses to find the output, so a run
     # that produces correct numbers but no manifest is still a broken pipeline.

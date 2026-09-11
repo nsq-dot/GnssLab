@@ -95,6 +95,61 @@ struct SPPConfigData {
 };
 
 /**
+ * Cycle-slip detection configuration (chapter 7), read from the same
+ * `key = value` ini format as SPPConfigData.
+ *
+ * Kept separate from SPPConfigData because the two programs share no keys
+ * beyond the file paths and the constellation switches: the solver's elevation
+ * mask, tropopause model and estimator have no meaning to a cycle-slip detector.
+ * Both structs delegate to the same ConfigReader and resolvePath(), so the
+ * format and the path rules stay identical.
+ */
+struct CSConfigData {
+
+    // ---- files ----
+    /// RINEX observation file, relative to the config file's directory.
+    std::string obsFile;
+    /// Directory for the per-satellite and summary output, relative to the
+    /// config file's directory. Replaces the hardcoded input-directory write
+    /// that used to scatter `G01`, `C08`, ... into data/.
+    std::string outDir;
+
+    // ---- epoch control ----
+    /// Stop after this epoch, as "YYYY-MM-DDTHH:MM:SS". Empty means "run to the
+    /// end of the observation file".
+    std::string stopUTC;
+
+    // ---- constellation selection ----
+    bool GPS;
+    bool BD2;
+
+    // ---- detector parameters ----
+    /// Epoch gap beyond which the arc is treated as interrupted. The textbook
+    /// suggests 30 min; 120 s is stricter and suits a 1 Hz file. [s]
+    double deltaTMax;
+    /// Absolute detection threshold for the GF statistic. [m]
+    ///
+    /// NOT a multiple of a wavelength: the smallest slip the GF combination can
+    /// resolve is |lambda1 - lambda2| = 0.0539 m, and a threshold placed *at*
+    /// that value catches such a slip only about half the time. 0.030 m sits at
+    /// 0.56x of it and keeps the false-alarm rate at zero on 1 Hz static data.
+    double threshold;
+    /// Sliding-window length for the polynomial-fit detector. [epochs]
+    int gfPolyWindow;
+
+    /// Values used when no config file is supplied or a key is absent.
+    static CSConfigData defaults();
+
+    /**
+     * Read a configuration file. Every key is optional; anything absent keeps
+     * its `defaults()` value. Throws std::runtime_error only if the file exists
+     * but cannot be opened. Relative paths are returned as written - use
+     * resolvePath() to make them absolute against the config file's directory.
+     */
+    static CSConfigData fromIni(const std::string &path);
+};
+
+/**
  * Resolve `path` against `baseDir` unless it is already absolute.
  *
  * Config files are meant to be readable from any working directory, so their

@@ -1,5 +1,8 @@
 #include <string>
 #include <algorithm> //replace 函数
+#include <cmath>
+#include <deque>
+#include <limits>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include "TimeConvert.h"
@@ -819,6 +822,457 @@ void detectCSMW(ObsData &obsData,
 
         csFlagData[amb1] = csFlag;
         csFlagData[amb2] = csFlag;
+    }
+
+    // 删除坏卫星
+    for (auto sat: badSatSet)
+        obsData.satTypeValueData.erase(sat);
+
+};
+
+//=====================================================================
+// 周跳探测：载波相位几何无关(GF)组合
+//=====================================================================
+
+const char *csGFStatusName(int status) {
+    switch (status) {
+        case CSGF_OK:
+            return "OK";
+        case CSGF_SLIP:
+            return "SLIP";
+        case CSGF_INIT:
+            return "INIT";
+        case CSGF_GAP:
+            return "GAP";
+        case CSGF_WARMUP:
+            return "WARMUP";
+        default:
+            return "?";
+    }
+};
+
+// GF/MW 组合使用的两个载波观测类型。GPS 取 L1/L2；BDS 取 B1I/B2I，
+// 在 RINEX 3 里就是 L2/L7（注意不是 L6——B6 是第三个频点，构不成教材要的 B1I/B2I）。
+static bool gfObsTypes(const SatID &sat, string &L1Type, string &L2Type) {
+    if (sat.system == "G") {
+        L1Type = "L1";
+        L2Type = "L2";
+        return true;
+    }
+    if (sat.system == "C") {
+        L1Type = "L2";
+        L2Type = "L7";
+        return true;
+    }
+    return false;
+};
+
+// 把周跳标志同时写到两个载波的模糊度参数上：MW/GF 都是两个频点的组合，
+// 判出周跳时无法区分落在哪个频点上，只能两个都标。
+static void setGFSlipFlags(const ObsData &obsData, const SatID &sat,
+                           const string &L1Type, const string &L2Type,
+                           std::map<Variable, int> &csFlagData, int status) {
+    Variable amb1(obsData.station, sat,
+                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L1Type));
+    Variable amb2(obsData.station, sat,
+                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L2Type));
+
+    csFlagData[amb1] = status;
+    csFlagData[amb2] = status;
+};
+
+double wavelengthOfGF(string sys, string L1Type, string L2Type) {
+    double f1 = getFreq(sys, L1Type);
+    double f2 = getFreq(sys, L2Type);
+    if (f1 <= 0.0 || f2 <= 0.0)
+        return 0.0;
+
+    // GF 组合的自然尺度是 |λ1-λ2|，即一周周跳在该组合里的最小响应：
+    // GPS L1/L2 为 0.0539 m，BDS B1I/B2I 为 0.0563 m。
+    //
+    // 切勿与 wavelengthOfMW 混用：MW 的 c/(f1-f2) 是 0.862 m，差一个量级。
+    // MW 里 "阈值 = minCycles(2.0) × wavelength" 的写法搬到 GF 上会得到
+    // 0.108 m，是最小周跳的两倍，恰好把最该检出的那批周跳漏掉一半。
+    return std::abs(C_MPS / f1 - C_MPS / f2);
+};
+
+double varOfGF(string sys, string L1Type, string L2Type) {
+    // 两个载波各按 3 mm 相位噪声计，组合噪声 σ=√2·3mm≈4.2mm。
+    //
+    // 返回的是真方差（调用方会 sqrt），而 varOfMW 返回 0.212 却被当方差用，
+    // 量纲是错的——这里不再重复那个写法。
+    (void) sys;
+    (void) L1Type;
+    (void) L2Type;
+
+    const double sigmaCarrier = 0.003;   // m
+    double sigma = std::sqrt(2.0) * sigmaCarrier;
+    return sigma * sigma;
+};
+
+void detectCSGFdiff(ObsData &obsData,
+                    std::map<Variable, int> &csFlagData,
+                    SatEpochValueMap &satEpochGFData,
+                    SatEpochValueMap &satEpochDLData,
+                    SatEpochValueMap &satEpochMeanDLData,
+                    SatEpochValueMap &satEpochSigmaDLData,
+                    SatEpochValueMap &satEpochCSFlagData,
+                    double threshold,
+                    double deltaTMax)
+{
+    // A structure used to store filter data for a SV.
+    struct GFData {
+        // Default constructor initializing the data in the structure
+        GFData()
+                : formerEpoch(BEGINNING_OF_TIME), windowSize(0),
+                  meanDL(0.0), varDL(0.0), formerLI(0.0), hasFormer(false) {};
+
+        CommonTime formerEpoch;  ///< 上一有效历元
+        int windowSize;          ///< 递推窗口长度
+        double meanDL;           ///< dL_I 的递推均值 [m]
+        double varDL;            ///< dL_I 的递推方差 [m^2]
+        double formerLI;         ///< 上一历元的 L_I [m]
+        bool hasFormer;          ///< false：弧段首历元或刚重置，还没有可用的差分
+    };
+
+    // 这个数据在下次调用时需要用到，所以定位为static变量
+    static std::map<SatID, GFData> satGFData;
+
+    const double nanValue = std::numeric_limits<double>::quiet_NaN();
+
+    CommonTime currentEpoch = obsData.epoch;
+    SatIDSet badSatSet;
+
+    for (auto stv: obsData.satTypeValueData) {
+        SatID sat = stv.first;
+
+        string L1Type, L2Type;
+        if (!gfObsTypes(sat, L1Type, L2Type)) {
+            badSatSet.insert(sat);
+            continue;
+        }
+
+        double LIValue;
+        try {
+            LIValue = stv.second.at(L1Type) - stv.second.at(L2Type);
+        } catch (std::out_of_range) {
+            // 两个频点不齐，构不出 GF 组合，这颗星探测不了
+            badSatSet.insert(sat);
+            continue;
+        }
+
+        satEpochGFData[sat][currentEpoch] = LIValue;
+
+        GFData &state = satGFData[sat];
+
+        double deltaT = (currentEpoch - state.formerEpoch);
+        double dLI = nanValue;
+        double sigmaUsed = nanValue;
+        int status;
+
+        if (!state.hasFormer) {
+            // 弧段首历元：没有上一历元可比，只能播种，不做判定。
+            // （MW 程序在这里直接报周跳，于是每颗星的第一个历元都是假阳性。）
+            status = CSGF_INIT;
+            state.meanDL = 0.0;
+            state.varDL = varOfGF(sat.system, L1Type, L2Type);
+            state.windowSize = 0;
+        } else if (deltaT > deltaTMax) {
+            // 数据中断：重新跟踪后初始相位与之前弧段不同，差分没有意义，不做判定
+            status = CSGF_GAP;
+            state.meanDL = 0.0;
+            state.varDL = varOfGF(sat.system, L1Type, L2Type);
+            state.windowSize = 0;
+        } else {
+            dLI = LIValue - state.formerLI;
+
+            double bias = std::abs(dLI - state.meanDL);
+
+            // 统计量是"两个相邻样本之差"，其方差是单样本的两倍，
+            // 所以这里必须带 √2；漏掉会让探测器比预期敏感 41%。
+            sigmaUsed = std::sqrt(state.varDL);
+            double sigLimit = 4.0 * std::sqrt(2.0) * sigmaUsed;
+            double limit = std::max(sigLimit, threshold);
+
+            if (bias > limit) {
+                status = CSGF_SLIP;
+                // 重置统计量，清空窗口。
+                //
+                // 这里不能像 MW 那样把均值播成"当前这个值"：MW 的统计量是电平，
+                // 用当前电平播种是对的；GF 的统计量是一次差分，而发生周跳那一刻
+                // 的差分本身就是异常值。用它播种的话，下一历元正常的差分与它
+                // 相差整整一个周跳量，会被再判一次周跳——一次真周跳后面必然
+                // 跟着一次假周跳，虚警率直接翻倍。
+                //
+                // 清空后让下一个历元的差分成为新窗口的第一个样本，
+                // 递推式 mean += (dLI - 0)/1 自然完成播种。
+                state.meanDL = 0.0;
+                state.varDL = varOfGF(sat.system, L1Type, L2Type);
+                state.windowSize = 0;
+            } else {
+                status = CSGF_OK;
+                state.windowSize++;
+                double size = static_cast<double>(state.windowSize);
+                double dlBias = dLI - state.meanDL;
+                state.meanDL += dlBias / size;
+                state.varDL += (dlBias * dlBias - state.varDL) / size;
+            }
+        }
+
+        state.formerEpoch = currentEpoch;
+        state.formerLI = LIValue;
+        state.hasFormer = true;
+
+        satEpochDLData[sat][currentEpoch] = dLI;
+        satEpochMeanDLData[sat][currentEpoch] = state.meanDL;
+        satEpochSigmaDLData[sat][currentEpoch] = sigmaUsed;
+        satEpochCSFlagData[sat][currentEpoch] = static_cast<double>(status);
+
+        setGFSlipFlags(obsData, sat, L1Type, L2Type, csFlagData, status);
+    }
+
+    // 删除坏卫星
+    for (auto sat: badSatSet)
+        obsData.satTypeValueData.erase(sat);
+
+};
+
+namespace {
+
+// GF 多项式拟合窗口里的一个点。(t, S)：S = L_I - L_I(anchor)，单位 m。
+// t 是从 anchor 累计的秒数，逐历元累加得到——不必转儒略日，
+// 也就不会在跨日时出现 sod 回绕。
+struct GFPoint {
+    double t;
+    double S;
+};
+
+// 二阶多项式最小二乘拟合的结果
+struct GFQuadFit {
+    bool valid = false;
+    double tRef = 0.0;                            ///< 时间重心
+    double scale = 0.0;                           ///< 半窗长，把 u 归一到 [-1,1]
+    Eigen::Vector3d c = Eigen::Vector3d::Zero();
+    Eigen::Matrix3d N = Eigen::Matrix3d::Zero();  ///< A^T A，算杠杆值要用
+    double sigmaRes = 0.0;                        ///< 残差 RMS [m]
+    double worstResidual = 0.0;                   ///< 窗口内绝对值最大的残差
+    int worstIndex = -1;                          ///< 上者对应的窗口下标
+};
+
+// 二阶多项式拟合，基函数用移位的 Chebyshev {1, u, 2u²-1}，u∈[-1,1]。
+//
+// 用幂基 {1, t, t²} 且 t 以秒计（15 分钟窗口 ≈ 900 s）时，法方程条件数
+// 可达 1e8；而 u∈[-1,1] 上 Chebyshev 基近正交，3×3 求解良态得多。
+//
+// skipIndex >= 0 时剔除该下标再拟合，用于单步稳健重拟合。
+GFQuadFit fitGFQuadratic(const std::deque<GFPoint> &pts, int skipIndex, int minPoints) {
+    GFQuadFit fit;
+
+    int n = static_cast<int>(pts.size());
+    if (skipIndex >= 0)
+        n--;
+    if (n < minPoints)
+        return fit;
+
+    double tMin = pts.front().t;
+    double tMax = pts.front().t;
+    for (const auto &p: pts) {
+        tMin = std::min(tMin, p.t);
+        tMax = std::max(tMax, p.t);
+    }
+    fit.tRef = 0.5 * (tMin + tMax);
+    fit.scale = 0.5 * (tMax - tMin);
+    if (fit.scale <= 0.0)
+        return fit;
+
+    Eigen::MatrixXd A(n, 3);
+    Eigen::VectorXd y(n);
+    int row = 0;
+    for (int i = 0; i < static_cast<int>(pts.size()); ++i) {
+        if (i == skipIndex)
+            continue;
+        double u = (pts[i].t - fit.tRef) / fit.scale;
+        A(row, 0) = 1.0;
+        A(row, 1) = u;
+        A(row, 2) = 2.0 * u * u - 1.0;
+        y(row) = pts[i].S;
+        ++row;
+    }
+
+    fit.N = A.transpose() * A;
+    fit.c = fit.N.ldlt().solve(A.transpose() * y);
+
+    double ss = 0.0;
+    fit.worstResidual = 0.0;
+    fit.worstIndex = -1;
+    for (int r = 0; r < n; ++r) {
+        double res = y(r) - A.row(r).dot(fit.c);
+        ss += res * res;
+        if (std::abs(res) > fit.worstResidual) {
+            fit.worstResidual = std::abs(res);
+            // r 是"参与拟合的行号"，要映射回窗口下标
+            fit.worstIndex = (skipIndex >= 0 && r >= skipIndex) ? (r + 1) : r;
+        }
+    }
+    int dof = n - 3;
+    fit.sigmaRes = (dof > 0) ? std::sqrt(ss / static_cast<double>(dof)) : 0.0;
+    fit.valid = true;
+    return fit;
+};
+
+// 预报点 u 处的杠杆值 h = xᵀ(AᵀA)⁻¹x。预报点在窗口之外（样本外预报），
+// h 大于窗口内部点，预报方差要按 (1+h) 放大。
+double gfLeverage(const Eigen::Matrix3d &N, double u) {
+    Eigen::Vector3d x(1.0, u, 2.0 * u * u - 1.0);
+    double h = x.dot(N.ldlt().solve(x));
+    return (h > 0.0) ? h : 0.0;
+};
+
+}  // namespace
+
+void detectCSGFpoly(ObsData &obsData,
+                    std::map<Variable, int> &csFlagData,
+                    SatEpochValueMap &satEpochGFData,
+                    SatEpochValueMap &satEpochPolyPredData,
+                    SatEpochValueMap &satEpochPolyResData,
+                    SatEpochValueMap &satEpochSigmaResData,
+                    SatEpochValueMap &satEpochCSFlagData,
+                    int windowLength,
+                    double threshold,
+                    double deltaTMax)
+{
+    // 判定所需的最少样本数：3 个参数 + 5 个自由度
+    const int minPoints = 8;
+    // 窗口允许的最大时间跨度，防止抽稀后的 1Hz 数据把窗口拉成几小时、
+    // 二次多项式模型在整个跨度上早已不成立
+    const double maxWindowSpan = 1800.0;
+
+    struct GFPolyData {
+        GFPolyData()
+                : anchorLI(0.0), sigmaRes(0.0), lastT(0.0),
+                  hasAnchor(false), formerEpoch(BEGINNING_OF_TIME) {};
+
+        std::deque<GFPoint> window;  ///< 自 anchor 起的 (t, S)，长度不超过 windowLength
+        double anchorLI;             ///< anchor 历元的 L_I [m]
+        double sigmaRes;             ///< 最近一次拟合的残差 RMS [m]
+        double lastT;                ///< 窗口内最后一个点的 t
+        bool hasAnchor;
+        CommonTime formerEpoch;      ///< 用于判断数据中断
+    };
+
+    // 这个数据在下次调用时需要用到，所以定位为static变量
+    static std::map<SatID, GFPolyData> satGFPolyData;
+
+    const double nanValue = std::numeric_limits<double>::quiet_NaN();
+
+    CommonTime currentEpoch = obsData.epoch;
+    SatIDSet badSatSet;
+
+    for (auto stv: obsData.satTypeValueData) {
+        SatID sat = stv.first;
+
+        string L1Type, L2Type;
+        if (!gfObsTypes(sat, L1Type, L2Type)) {
+            badSatSet.insert(sat);
+            continue;
+        }
+
+        double LIValue;
+        try {
+            LIValue = stv.second.at(L1Type) - stv.second.at(L2Type);
+        } catch (std::out_of_range) {
+            badSatSet.insert(sat);
+            continue;
+        }
+
+        satEpochGFData[sat][currentEpoch] = LIValue;
+
+        GFPolyData &state = satGFPolyData[sat];
+
+        double deltaT = state.hasAnchor ? (currentEpoch - state.formerEpoch) : 0.0;
+        bool gap = state.hasAnchor && (deltaT > deltaTMax);
+
+        double pred = nanValue;
+        double resid = nanValue;
+        int status;
+
+        if (!state.hasAnchor || gap) {
+            // 首历元或数据中断：重新锚定，不做判定
+            status = state.hasAnchor ? CSGF_GAP : CSGF_INIT;
+            state.anchorLI = LIValue;
+            state.window.clear();
+            state.window.push_back(GFPoint{0.0, 0.0});
+            state.lastT = 0.0;
+            state.sigmaRes = 0.0;
+            state.hasAnchor = true;
+        } else {
+            // 重心化：拟合对象是相对 anchor 的增量，不是原始 L_I。
+            // 原始 L_I 含 λ1N1-λ2N2，量级 1e5 m，用二次多项式去分辨 5 cm
+            // 是 5e-7 的相对扰动；重心化后 S 从 0 起、窗口内 O(1 m)，
+            // 且常数项被 a0 精确吸收。
+            double tCurrent = state.lastT + deltaT;
+            double SValue = LIValue - state.anchorLI;
+
+            // 窗口跨度超限时丢掉最老的点
+            while (state.window.size() > 1 &&
+                   state.window.back().t - state.window.front().t > maxWindowSpan) {
+                state.window.pop_front();
+            }
+
+            if (static_cast<int>(state.window.size()) < minPoints) {
+                status = CSGF_WARMUP;
+            } else {
+                GFQuadFit fit = fitGFQuadratic(state.window, -1, minPoints);
+                if (!fit.valid) {
+                    status = CSGF_WARMUP;
+                } else {
+                    // 单步稳健重拟合：窗口里若有一个明显离群点（粗差或此前漏检的
+                    // 周跳），它会把多项式轻微拽偏。剔掉最差的点重拟合一次，
+                    // 把泄漏量从 ~0.19·s 压到 ~0.05·s。
+                    //
+                    // 只做一步、不迭代到收敛——完整的 IRLS 会把真实的阶跃
+                    // 当成离群点逐步吸收进多项式，反而把周跳抹平。
+                    if (fit.worstResidual > 3.5 * fit.sigmaRes && fit.worstResidual > 0.10) {
+                        GFQuadFit refit = fitGFQuadratic(state.window, fit.worstIndex, minPoints);
+                        if (refit.valid)
+                            fit = refit;
+                    }
+
+                    double u = (tCurrent - fit.tRef) / fit.scale;
+                    pred = fit.c(0) + fit.c(1) * u + fit.c(2) * (2.0 * u * u - 1.0);
+                    resid = SValue - pred;
+
+                    double h = gfLeverage(fit.N, u);
+                    double limit = std::max(4.0 * fit.sigmaRes * std::sqrt(1.0 + h), threshold);
+                    status = (std::abs(resid) > limit) ? CSGF_SLIP : CSGF_OK;
+
+                    state.sigmaRes = fit.sigmaRes;
+                }
+            }
+
+            state.window.push_back(GFPoint{tCurrent, SValue});
+            while (static_cast<int>(state.window.size()) > windowLength)
+                state.window.pop_front();
+            state.lastT = tCurrent;
+        }
+
+        // 检出周跳后立即重置窗口：被检出的阶跃绝不会留在拟合窗口里污染后续预报
+        if (status == CSGF_SLIP) {
+            state.anchorLI = LIValue;
+            state.window.clear();
+            state.window.push_back(GFPoint{0.0, 0.0});
+            state.lastT = 0.0;
+            state.sigmaRes = 0.0;
+        }
+
+        state.formerEpoch = currentEpoch;
+
+        satEpochPolyPredData[sat][currentEpoch] = pred;
+        satEpochPolyResData[sat][currentEpoch] = resid;
+        satEpochSigmaResData[sat][currentEpoch] = state.sigmaRes;
+        satEpochCSFlagData[sat][currentEpoch] = static_cast<double>(status);
+
+        setGFSlipFlags(obsData, sat, L1Type, L2Type, csFlagData, status);
     }
 
     // 删除坏卫星

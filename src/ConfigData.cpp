@@ -129,3 +129,49 @@ SPPConfigData SPPConfigData::fromIni(const std::string &path) {
     c.estimator = reader.getValueAsIntOr("estimator", c.estimator);
     return c;
 }
+
+CSConfigData CSConfigData::defaults() {
+    CSConfigData c;
+
+    // The committed sample: a fresh clone has this file and nothing else, so it
+    // is the only honest default. The 1 Hz zero-baseline set under
+    // data/Zero-baseline/ is not committed (see .gitignore) and is meant to be
+    // selected with --obs or a local config.
+    c.obsFile = "data/sample/WUH200CHN_R_20250010000_01D_30S_MO.rnx";
+    c.outDir = "output/cs";
+    c.stopUTC = "";   // run to the end of the file
+
+    c.GPS = true;
+    c.BD2 = true;
+
+    c.deltaTMax = 120.0;
+    c.threshold = 0.030;
+    c.gfPolyWindow = 30;
+
+    return c;
+}
+
+CSConfigData CSConfigData::fromIni(const std::string &path) {
+    CSConfigData c = defaults();
+
+    ConfigReader reader(path);
+
+    // Every key is optional; a missing key keeps the default from defaults().
+    c.obsFile = reader.getValueAsStringOr("obsFile", c.obsFile);
+    c.stopUTC = reader.getValueAsStringOr("stopUTC", c.stopUTC);
+
+    if (reader.has("outDir")) {
+        c.outDir = reader.getValueAsStringOr("outDir", c.outDir);
+    } else if (reader.has("outFile")) {
+        c.outDir = dirName(reader.getValueAsStringOr("outFile", "output/cs/x"));
+    }
+
+    c.GPS = reader.getValueAsBoolOr("GPS", c.GPS);
+    c.BD2 = reader.getValueAsBoolOr("BD2", c.BD2);
+
+    c.deltaTMax = reader.getValueAsDoubleOr("deltaTMax", c.deltaTMax);
+    c.threshold = reader.getValueAsDoubleOr("threshold", c.threshold);
+    c.gfPolyWindow = reader.getValueAsIntOr("gfPolyWindow", c.gfPolyWindow);
+
+    return c;
+}

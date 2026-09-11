@@ -95,6 +95,7 @@ set(GNSS_APPS
         bds_eph           # broadcast vs precise ephemeris, single satellite
         bds_gps_diff      # broadcast vs precise orbit/clock, full constellation
         cs_detect_mw      # Melbourne-Wübbena cycle-slip detection
+        cs_detect_gf      # geometry-free cycle-slip detection (diff + polynomial)
         matrix_calculator # Eigen matrix calculator
 )
 

@@ -39,6 +39,7 @@ AUX_APPS = {
     "read-rinex": "read_rinex",
     "system-bias": "system_bias",
     "cs-detect-mw": "cs_detect_mw",
+    "cs-detect-gf": "cs_detect_gf",
     "matrix": "matrix_calculator",
 }
 

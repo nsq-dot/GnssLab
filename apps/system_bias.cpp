@@ -1,51 +1,221 @@
+/**
+ * Copyright:
+ *  This software is licensed under the Mulan Permissive Software License, Version 2 (MulanPSL-2.0).
+ *  You may obtain a copy of the License at:http://license.coscl.org.cn/MulanPSL2
+ *
+ * Systematic-error diagnostics (chapter 5.1): the broadcast TGD correction for
+ * GPS and BeiDou, the Klobuchar ionospheric delay, the tropospheric delay, and
+ * the transmit-time verification exercises. Results are written as CSV and text
+ * files; see the output list below.
+ *
+ * Usage:
+ *   system_bias [config.ini] [options]
+ *
+ *   config.ini            Configuration file (default: config/bias.ini).
+ *                         Relative paths inside it resolve against the config
+ *                         file's own directory, not the working directory.
+ *                         When the default is not in the working directory the
+ *                         parent directories are searched for it. A config named
+ *                         explicitly on the command line is not searched for.
+ *
+ * Options (override the config file):
+ *   --obs <file>          RINEX observation file
+ *   --nav <file>          RINEX broadcast navigation file
+ *   --out-dir <dir>       Output directory
+ *   --stop <ISO8601>      Stop after this epoch, e.g. 2025-01-01T01:00:30
+ *   --verbose             Per-epoch and per-satellite detail on stdout. Without
+ *                         it the run prints only the closing summary - every
+ *                         number it would show also goes to one of the files
+ *                         below.
+ *   -h, --help            This message
+ *
+ * Output files, all written into the output directory:
+ *   GPS_TGD_Result.csv    GPS C1 TGD correction
+ *   BDS_TGD_Result.csv    BeiDou B1I/B2I TGD correction
+ *   PL_IonoCompare.csv    pseudorange-minus-phase against the model ionosphere
+ *   GPS_Iono.txt          GPS ionospheric delay per satellite and epoch
+ *   BDS_Iono.txt          BeiDou ionospheric delay per satellite and epoch
+ *   trop_delay_result.txt tropospheric delay per satellite and epoch
+ *   trop_zhd_zwd.txt      its zenith hydrostatic and wet components
+ *   tx_backward_verify.csv  transmit-time back-verification (exercise 5.1)
+ *   tx_if_single_diff.csv   ionosphere-free minus single-frequency transmit time
+ */
+
 #include <string>
 #include <fstream>
 #include <iostream>
-#include <cstring>
 #include <iomanip>
 #include <set>
 #include <cmath>
+
 #include "GnssStruct.h"
 #include "TimeConvert.h"
 #include "GnssFunc.h"
 #include "RinexNavStore.hpp"
 #include "RinexObsReader.h"
-
-#define debug 1
+#include "ConfigData.h"
+#include "app_utils.h"
 
 using namespace std;
 
-int main() {
+namespace {
 
-    //--------------------
-    // 打开文件流
-    //--------------------
+void printUsage(const char *prog) {
+    cout <<
+         "Usage: " << prog << " [config.ini] [options]\n"
+         "\n"
+         "Broadcast TGD, ionospheric and tropospheric diagnostics.\n"
+         "\n"
+         "  config.ini         Configuration file (default: config/bias.ini)\n"
+         "\n"
+         "Options:\n"
+         "  --obs <file>       RINEX observation file\n"
+         "  --nav <file>       RINEX broadcast navigation file\n"
+         "  --out-dir <dir>    Output directory\n"
+         "  --stop <ISO8601>   Stop after this epoch, e.g. 2025-01-01T01:00:30\n"
+         "  --verbose          Per-epoch and per-satellite detail\n"
+         "  -h, --help         This message\n";
+}
 
-    // Replace with your actual RINEX file path
-    string dirPath = "D:\\GnssLab\\data\\";
+}  // namespace
 
-    // rover obs file name
-    std::string roverFile = dirPath + "WUH200CHN_R_20250010000_01D_30S_MO.rnx";
-    cout << roverFile << endl;
+int main(int argc, char *argv[]) {
 
-    // nav file name, download from IGS ftp site:ftp://gssc.esa.int/gnss/data/daily/YYYY/brdc
-    std::string navFile = dirPath + "BRDC00IGS_R_20250010000_01D_MN.rnx";
+    //---------------------------------------------------------------
+    // Command line
+    //---------------------------------------------------------------
+    string configFile = "config/bias.ini";
+    bool haveConfigArg = false;
 
-    // 2022 03 03 06 48 37.0000000  0 45
-    CivilTime stopCivilTime = CivilTime(2025, 1, 1, 1, 0, 30);
-    CommonTime stopEpoch = CivilTime2CommonTime(stopCivilTime);
+    string optObs, optNav, optOutDir, optStop;
+    bool optVerbose = false;
 
+    for (int i = 1; i < argc; ++i) {
+        string a = argv[i];
+
+        auto needValue = [&](const char *name) -> string {
+            if (i + 1 >= argc) {
+                cerr << "Error: " << name << " requires a value\n";
+                exit(2);
+            }
+            return argv[++i];
+        };
+
+        if (a == "-h" || a == "--help") { printUsage(argv[0]); return 0; }
+        else if (a == "--obs")     optObs = needValue("--obs");
+        else if (a == "--nav")     optNav = needValue("--nav");
+        else if (a == "--out-dir") optOutDir = needValue("--out-dir");
+        else if (a == "--stop")    optStop = needValue("--stop");
+        else if (a == "--verbose") optVerbose = true;
+        else if (!a.empty() && a[0] == '-') {
+            cerr << "Error: unknown option '" << a << "'\n";
+            printUsage(argv[0]);
+            return 2;
+        } else if (!haveConfigArg) {
+            configFile = a;
+            haveConfigArg = true;
+        } else {
+            cerr << "Error: unexpected argument '" << a << "'\n";
+            return 2;
+        }
+    }
+
+    //---------------------------------------------------------------
+    // Configuration
+    //---------------------------------------------------------------
+    BiasConfigData cfg = BiasConfigData::defaults();
+    string configDir;
+
+    // See apps/spp_if.cpp for why the default name is searched upwards. Only the
+    // default is: a file the user named is taken at its word.
+    if (!haveConfigArg && !fileExists(configFile)) {
+        string found = findConfigUpwards(configFile);
+        if (!found.empty()) {
+            configFile = found;
+            cerr << "Note: using config found by searching upwards: " << configFile << "\n";
+        }
+    }
+
+    if (!fileExists(configFile)) {
+        if (haveConfigArg) {
+            cerr << "Error: cannot open config file: " << configFile << "\n";
+            return 1;
+        }
+        cerr << "Note: " << configFile << " not found; using built-in defaults.\n"
+             << "      Relative paths then resolve against the working directory ("
+             << std::filesystem::current_path().string() << ").\n";
+    } else {
+        try {
+            cfg = BiasConfigData::fromIni(configFile);
+            configDir = dirOf(configFile);
+        } catch (const std::exception &e) {
+            cerr << "Error: " << e.what() << "\n";
+            return 1;
+        }
+    }
+
+    // Command-line overrides win over the config file.
+    if (!optObs.empty())    cfg.obsFile = optObs;
+    if (!optNav.empty())    cfg.navFile = optNav;
+    if (!optOutDir.empty()) cfg.outDir = optOutDir;
+    if (!optStop.empty())   cfg.stopUTC = optStop;
+
+    // Relative config paths resolve against the project root; an explicit
+    // command-line path is used verbatim. See apps/spp_if.cpp for the rule.
+    string projectRoot = configDir.empty() ? "." : dirOf(configDir);
+
+    string roverFile = optObs.empty() ? resolvePath(projectRoot, cfg.obsFile) : cfg.obsFile;
+    string navFile = optNav.empty() ? resolvePath(projectRoot, cfg.navFile) : cfg.navFile;
+    string outDir = optOutDir.empty() ? resolvePath(projectRoot, cfg.outDir) : cfg.outDir;
+
+    if (optVerbose) {
+        cout << "config    : " << (configDir.empty() ? "(defaults)" : configFile) << "\n";
+        cout << "obs       : " << roverFile << "\n";
+        cout << "nav       : " << navFile << "\n";
+        cout << "outDir    : " << outDir << "\n";
+        cout << "stop      : " << (cfg.stopUTC.empty() ? "(end of file)" : cfg.stopUTC) << "\n";
+    }
+
+    if (!ensureDirectory(outDir)) {
+        cerr << "Error: cannot create output directory: " << outDir << "\n";
+        return 1;
+    }
+
+    //---------------------------------------------------------------
+    // Stop epoch
+    //---------------------------------------------------------------
+    bool haveStop = false;
+    CommonTime stopEpoch;
+    if (!cfg.stopUTC.empty()) {
+        int y, mo, d, h, mi;
+        double sec;
+        if (!parseISO8601(cfg.stopUTC, y, mo, d, h, mi, sec)) {
+            cerr << "Error: malformed stopUTC '" << cfg.stopUTC
+                 << "' (expected YYYY-MM-DDTHH:MM:SS)\n";
+            return 2;
+        }
+        stopEpoch = CivilTime2CommonTime(CivilTime(y, mo, d, h, mi, sec));
+        haveStop = true;
+    }
+
+    //---------------------------------------------------------------
+    // Open input
+    //---------------------------------------------------------------
     std::fstream roverObsStream(roverFile);
     if (!roverObsStream) {
-        cerr << "rover file open error!" << strerror(errno) << endl;
-        exit(-1);
+        cerr << "Error: cannot open observation file: " << roverFile << "\n";
+        return 1;
     }
 
     // read nav file data before rtk
     RinexNavStore navStore;
-    navStore.loadFile(navFile);
-
-    cout << "after NavStore" << endl;
+    try {
+        navStore.loadFile(navFile);
+    } catch (const std::exception &e) {
+        cerr << "Error: cannot load navigation file: " << navFile << "\n"
+             << "       " << e.what() << "\n";
+        return 1;
+    }
 
     std::map<string, std::set<string>> selectedTypes;
     selectedTypes["G"].insert("C1C");
@@ -69,30 +239,41 @@ int main() {
     readObsRover.setFileStream(&roverObsStream);
     readObsRover.setSelectedTypes(selectedTypes);
 
-    ofstream csv("GPS_TGD_Result.csv");
+    ofstream csv(outDir + "/GPS_TGD_Result.csv");
     csv << "Epoch,Sat,Raw_C1,TGD_Sec,TGD_Corr_M,Corrected_C1" << endl;
     csv << fixed << setprecision(6);
 
     //========新增北斗文件========
-    ofstream csv_bds("BDS_TGD_Result.csv");
+    ofstream csv_bds(outDir + "/BDS_TGD_Result.csv");
     csv_bds << "Epoch,Sat,Raw_P,TGD_Sec,TGD_Corr_M,Corrected_P,FreqType" << endl;
     csv_bds << fixed << setprecision(6);
 
     // 位置1：main开头
-    ofstream pl_compare("PL_IonoCompare.csv");
+    ofstream pl_compare(outDir + "/PL_IonoCompare.csv");
     pl_compare << "TimeOfDay(s),Sat,Raw_PL(m),Corr_PL(m),Elev(deg),Iono_Model(m)" << endl;
     pl_compare << fixed << setprecision(4);
 
-    ofstream f_iono_gps("GPS_Iono.txt");
-    ofstream f_iono_bds("BDS_Iono.txt");
-    ofstream f_trop("trop_delay_result.txt");
-    ofstream f_trop_zwd_zhd("trop_zhd_zwd.txt");
+    ofstream f_iono_gps(outDir + "/GPS_Iono.txt");
+    ofstream f_iono_bds(outDir + "/BDS_Iono.txt");
+    ofstream f_trop(outDir + "/trop_delay_result.txt");
+    ofstream f_trop_zwd_zhd(outDir + "/trop_zhd_zwd.txt");
 
     //======== 习题5.1 发射时间验证文件 =========
-    ofstream tx_back_verify("tx_backward_verify.csv", std::ios::out | std::ios::trunc);
+    ofstream tx_back_verify(outDir + "/tx_backward_verify.csv", std::ios::out | std::ios::trunc);
 
     // 3. IF - 单频 差分文件
-    ofstream tx_if_single_diff("tx_if_single_diff.csv", std::ios::out | std::ios::trunc);
+    ofstream tx_if_single_diff(outDir + "/tx_if_single_diff.csv", std::ios::out | std::ios::trunc);
+
+    // Fail loudly rather than running the whole solve and writing nothing.
+    for (const auto &stream: {&csv, &csv_bds, &pl_compare, &f_iono_gps, &f_iono_bds,
+                              &f_trop, &f_trop_zwd_zhd, &tx_back_verify, &tx_if_single_diff}) {
+        if (!*stream) {
+            cerr << "Error: cannot open an output file in " << outDir << "\n";
+            return 1;
+        }
+    }
+
+    int epochCount = 0;
 
     while (true) {
 
@@ -115,7 +296,7 @@ int main() {
         YDSTime ydst = CommonTime2YDSTime(epoch);
         double sod = ydst.sod;
 
-        if (debug) {
+        if (optVerbose) {
             cout << "after convertObsType" << endl;
             cout << roverData << endl;
         }
@@ -194,8 +375,9 @@ int main() {
                             << corr << ","<< P_corr << ","<< freqMark << endl;
                 }
 
-                cout << "[TGD] " << sat << " | RAW: " << P_raw
-                     << " | CORR: " << corr << " | NEW: " << P_corr << endl;
+                if (optVerbose)
+                    cout << "[TGD] " << sat << " | RAW: " << P_raw
+                         << " | CORR: " << corr << " | NEW: " << P_corr << endl;
 
             } catch (...) {
                 continue;
@@ -212,7 +394,7 @@ int main() {
         // ② IF组合伪距
         std::map<SatID, Xvt> satXvtTransTime_IF = computeSatPos(roverData, navStore, &ifPRMap);
 
-        if (debug) {
+        if (optVerbose) {
             cout << "satXvtTransTime" << CommonTime2CivilTime(roverData.epoch) << endl;
             for (auto sx: satXvtTransTime) {
                 cout << sx.first << endl;
@@ -235,7 +417,7 @@ int main() {
 
         verifyTransmitTimeCompare(roverData.epoch, xyz, satXvtRecTime, satXvtRecTime_IF, tx_if_single_diff);
 
-        if (debug) {
+        if (optVerbose) {
             cout << "satXvtRecTime " << endl;
             for (auto sx: satXvtRecTime) {
                 cout << sx.first << " xvt:" << endl;
@@ -248,12 +430,12 @@ int main() {
         if (std::abs(xyz.norm() - RadiusEarth) < 100000.0) {
             satElevData.clear();
             satAzimData.clear();
-            if (debug)
+            if (optVerbose)
                 cout << "computeElevAzim" << endl;
 
             computeElevAzim(xyz, satXvtRecTime, satElevData, satAzimData);
 
-            if (debug) {
+            if (optVerbose) {
                 cout << "satElevData:" << endl;
                 cout << satElevData << endl;
             }
@@ -265,9 +447,10 @@ int main() {
             for (auto& pair : ionoMap) {
                 SatID sat = pair.first;
                 double iono = pair.second;
-                cout << "[IONO] " << sat
-                     << "  Elev: " << satElevData[sat] << " deg"
-                     << "  Iono: " << iono << " m" << endl;
+                if (optVerbose)
+                    cout << "[IONO] " << sat
+                         << "  Elev: " << satElevData[sat] << " deg"
+                         << "  Iono: " << iono << " m" << endl;
 
                 if(sat.system == "G"){
                     f_iono_gps << fixed << setprecision(6)
@@ -326,9 +509,10 @@ int main() {
             for (auto& pair : tropMap) {
                 SatID sat = pair.first;
                 double trop = pair.second;
-                cout << "[TROP] " << sat
-                     << "  Elev: " << satElevData[sat] << " deg"
-                     << "  Delay: " << trop << " m" << endl;
+                if (optVerbose)
+                    cout << "[TROP] " << sat
+                         << "  Elev: " << satElevData[sat] << " deg"
+                         << "  Delay: " << trop << " m" << endl;
 
                 // 写入文件
                 f_trop << fixed << setprecision(6)<< sod << " "<< sat << " "<< satElevData[sat] << " "<< trop << endl;
@@ -336,8 +520,12 @@ int main() {
 
         }
 
+        // Counted before the stop test: the epoch that trips the test has already
+        // been fully processed and written, so it belongs in the total.
+        epochCount++;
+
         // 调试代码时，设置一个stopEpoch，有助于快速得到结果
-        if (roverData.epoch > stopEpoch)
+        if (haveStop && roverData.epoch > stopEpoch)
             break;
     }
     csv.close();
@@ -350,7 +538,9 @@ int main() {
     pl_compare.close();
     roverObsStream.close();
 
-    cout << endl;
+    cout << "Epochs processed : " << epochCount << "\n";
+    cout << "Output written to " << outDir << "\n";
 
+    return 0;
 }
 

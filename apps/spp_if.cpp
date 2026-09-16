@@ -18,6 +18,10 @@
  *   config.ini            Configuration file (default: config/spp.ini).
  *                         Relative paths inside it resolve against the config
  *                         file's own directory, not the working directory.
+ *                         When the default is not in the working directory the
+ *                         parent directories are searched for it, so the program
+ *                         also runs from the build tree. A config named
+ *                         explicitly on the command line is not searched for.
  *
  * Options (override the config file):
  *   --obs <file>          RINEX observation file
@@ -203,6 +207,22 @@ int main(int argc, char *argv[]) {
     SPPConfigData cfg = SPPConfigData::defaults();
     string configDir;
 
+    // The default name is written relative to the repository root, but the
+    // working directory often is not the repository root - CLion runs a target
+    // from its build tree (cmake-build-debug/bin here, two levels down). Walk
+    // upwards for the default name so the program still finds its config.
+    //
+    // Only the default is searched. A file the user named on the command line is
+    // taken at its word, so a typo fails loudly instead of quietly running with
+    // a different config found somewhere up the tree.
+    if (!haveConfigArg && !fileExists(configFile)) {
+        string found = findConfigUpwards(configFile);
+        if (!found.empty()) {
+            configFile = found;
+            cerr << "Note: using config found by searching upwards: " << configFile << "\n";
+        }
+    }
+
     if (!fileExists(configFile)) {
         if (haveConfigArg) {
             // An explicitly named config file that does not exist is an error.
@@ -210,8 +230,12 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         // No default config present: fall back to built-in defaults so the
-        // program stays usable when run from an arbitrary directory.
-        cerr << "Note: " << configFile << " not found; using built-in defaults.\n";
+        // program stays usable when run from an arbitrary directory. Note that
+        // the built-in paths are relative to the WORKING DIRECTORY - unlike the
+        // paths in a config file, which are relative to the config's directory.
+        cerr << "Note: " << configFile << " not found; using built-in defaults.\n"
+             << "      Relative paths then resolve against the working directory ("
+             << std::filesystem::current_path().string() << ").\n";
     } else {
         try {
             cfg = SPPConfigData::fromIni(configFile);

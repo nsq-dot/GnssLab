@@ -4,9 +4,10 @@ The configuration reference lives next to the files it describes:
 
 **→ [`config/README.md`](../config/README.md)**
 
-It covers the file format, both shipped profiles, every key with its type and
-default, which keys are reserved and have no effect yet, and the one change
-that will silently break the regression baseline if made without thinking.
+It covers the file format, every shipped profile (`spp.ini`, `spp.tuned.ini`,
+`cs.ini`, `bias.ini`, `eph.ini`), each key with its type and default, which keys
+are reserved and have no effect yet, and the changes that will silently break
+the regression baseline if made without thinking.
 
 Quick start:
 

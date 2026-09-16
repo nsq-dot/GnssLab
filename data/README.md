@@ -20,6 +20,10 @@ The sample is trimmed from the full files to exactly the 63 epochs that
 baselines byte-for-byte**. That verification is what makes it trustworthy as a
 CI fixture and as the dataset behind `gnss demo`.
 
+It contains observations and broadcast navigation only — **no SP3**, so
+`bds_eph` and `bds_gps_diff` cannot be run from the sample alone. The smoke test
+skips its ephemeris checks rather than failing when the SP3 is absent.
+
 Regenerate it (after downloading the full set) with:
 
 ```bash
@@ -36,10 +40,13 @@ say so and skip the check.
 | `WUH200CHN_R_20250010000_01D_30S_MO.rnx` | IGS daily observation, 30 s | Station WUH2, 2025-01-01 |
 | `BRDC00IGS_R_20250010000_01D_MN.rnx` | IGS broadcast navigation, mixed | GPS + BeiDou, needed by the solver |
 | `WUM0MGXFIN_20250010000_01D_05M_ORB.SP3` | MGEX precise orbit, 5 min | For `bds_eph` / `bds_gps_diff` |
-| `COD0MGXFIN_20250010000_01D_30S_CLK.CLK` | MGEX precise clock, 30 s | For `bds_gps_diff` |
+| `COD0MGXFIN_20250010000_01D_30S_CLK.CLK` | MGEX precise clock, 30 s | Downloaded, but **no program reads it today** |
 | `Leap_Second.dat` | IERS leap-second table | Time-system conversions |
 
-`spp_if` needs only the first two. The rest are for the auxiliary programs.
+`spp_if` needs only the first two. The rest are for the auxiliary programs — and
+of those, only the SP3 is actually consumed: `src/Rx3ClockReader.*` exists and is
+held by `SP3Store`, but no executable loads a `.CLK` file. The row is kept
+because the download script fetches it and the intended use is clear.
 
 `scripts/download_data.py` fetches these from public archives without
 credentials:

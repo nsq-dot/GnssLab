@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 /**
  * Solver configuration, as read from a `key = value` ini file.
@@ -150,6 +151,122 @@ struct CSConfigData {
 };
 
 /**
+ * Systematic-bias / RINEX-inventory configuration, shared by
+ * apps/system_bias and apps/read_rinex, read from `config/bias.ini`.
+ *
+ * One struct for both because they need exactly the same things - an
+ * observation file, a broadcast navigation file, somewhere to write, and a stop
+ * epoch - and nothing else. The rule is the one stated above CSConfigData: split
+ * the struct when the programs stop sharing more than file paths. The TGD and
+ * ionospheric diagnostics system_bias computes have no meaning to read_rinex's
+ * inventory, and neither has any setting of its own.
+ *
+ * CAUTION, and the reason this comment is longer than the struct: the two
+ * programs used to stop at *different* epochs - system_bias at 01:00:30,
+ * read_rinex at 00:00:30. One `stopUTC` key cannot carry both, and the shipped
+ * value is system_bias's. read_rinex therefore now runs 123 epochs where it used
+ * to run 3; 00:00:30 was a debugging leftover (read_rinex's own commented-out
+ * alternative was "23:59:30", i.e. the whole day). If you "tidy" this back to
+ * 00:00:30 you will change system_bias's output instead - and its nine files are
+ * the point of that program. See CHANGELOG.md.
+ */
+struct BiasConfigData {
+
+    // ---- files ----
+    /// RINEX observation file, relative to the config file's directory.
+    std::string obsFile;
+    /// RINEX navigation file (broadcast ephemeris).
+    std::string navFile;
+    /// Directory for the diagnostic output, relative to the config file's
+    /// directory. Replaces the fixed-name files (GNSS_Statistics.csv,
+    /// GPS_TGD_Result.csv, ...) that used to land in the *working* directory,
+    /// which meant a run through the `gnss app` CLI dirtied the repository root.
+    ///
+    /// Shared by both programs; their file names do not overlap, so one
+    /// directory holds both sets.
+    std::string outDir;
+
+    // ---- epoch control ----
+    /// Stop after this epoch, as "YYYY-MM-DDTHH:MM:SS". Empty means "run to the
+    /// end of the observation file".
+    std::string stopUTC;
+
+    /// Values used when no config file is supplied or a key is absent.
+    static BiasConfigData defaults();
+
+    /**
+     * Read a configuration file. Every key is optional; anything absent keeps
+     * its `defaults()` value. Throws std::runtime_error only if the file exists
+     * but cannot be opened. Relative paths are returned as written - use
+     * resolvePath() to make them absolute against the config file's directory.
+     */
+    static BiasConfigData fromIni(const std::string &path);
+};
+
+/**
+ * Broadcast-versus-precise ephemeris configuration, shared by apps/bds_eph and
+ * apps/bds_gps_diff, read from `config/eph.ini`.
+ *
+ * Separate from SPPConfigData even though both name a navigation file: the
+ * solver has no use for a precise orbit, and the comparison programs have no use
+ * for an elevation mask. The first four keys are shared by the two programs; the
+ * rest are per-program, and each program ignores the ones that are not its own.
+ *
+ * `bds_eph` reports one satellite at one epoch; `bds_gps_diff` sweeps a list of
+ * satellites over a time series. That asymmetry is why the two halves are
+ * documented separately below rather than folded into one set of keys.
+ */
+struct EphConfigData {
+
+    // ---- files ----
+    /// RINEX navigation file (broadcast ephemeris).
+    std::string navFile;
+    /// MGEX precise orbit (SP3), the reference the broadcast orbit is compared
+    /// against. Not committed - see data/README.md for where to download it.
+    std::string sp3File;
+    /// Output directory, relative to the config file's directory.
+    ///
+    /// Unused by bds_eph, which prints its report and writes no files. It
+    /// deliberately has no `--out-dir` option either: accepting one as a silent
+    /// no-op would be worse than not offering it.
+    std::string outDir;
+
+    // ---- bds_eph: one satellite at one epoch ----
+    /// Satellite to compare, e.g. "C01".
+    std::string targetSat;
+    /// The epoch to evaluate, as "YYYY-MM-DDTHH:MM:SS".
+    std::string targetUTC;
+
+    // ---- bds_gps_diff: a satellite set over a time series ----
+    /// Satellites to sweep.
+    ///
+    /// A list cannot be expressed as a single ini value, and ConfigReader has no
+    /// list accessor, so the file carries this as ONE comma-separated string and
+    /// fromIni() splits it. Order is preserved: it is the order of the CSV rows.
+    std::vector<std::string> satList;
+    /// First epoch of the series, as "YYYY-MM-DDTHH:MM:SS". Also names the output
+    /// file (sat_pos_vel_diff_<yyyymmdd>.csv), so a series starting on another
+    /// day no longer produces a file whose name says 20250101.
+    std::string startUTC;
+    /// Number of epochs to process.
+    int epochCount;
+    /// Seconds between epochs. The SP3 product is sampled at 5 min, so the
+    /// intermediate epochs rely on the orbit interpolation.
+    double interval;
+
+    /// Values used when no config file is supplied or a key is absent.
+    static EphConfigData defaults();
+
+    /**
+     * Read a configuration file. Every key is optional; anything absent keeps
+     * its `defaults()` value. Throws std::runtime_error only if the file exists
+     * but cannot be opened. Relative paths are returned as written - use
+     * resolvePath() to make them absolute against the config file's directory.
+     */
+    static EphConfigData fromIni(const std::string &path);
+};
+
+/**
  * Resolve `path` against `baseDir` unless it is already absolute.
  *
  * Config files are meant to be readable from any working directory, so their
@@ -159,3 +276,40 @@ struct CSConfigData {
  * has to behave the same on Windows and on Linux/CI.
  */
 std::string resolvePath(const std::string &baseDir, const std::string &path);
+
+/**
+ * Find a config file by walking up from the working directory.
+ *
+ * `relative` is a config path as it is normally written from the repository
+ * root, e.g. "config/spp.ini". The search starts in the current working
+ * directory, climbs one directory at a time, and returns the first candidate
+ * that exists as a regular file - or "" if the walk reaches the filesystem root
+ * without a hit.
+ *
+ * This exists because the default config name is relative to the repository
+ * root, while the *working directory* frequently is not: CLion runs a target
+ * from its build tree (cmake-build-debug/bin here, two levels down). A miss is
+ * not harmless - the program falls back to built-in defaults, whose paths are
+ * relative to the working directory, so the run then dies with "cannot open
+ * observation file" and reads like a broken build rather than a missing config.
+ *
+ * An absolute `relative` is returned unchanged: the caller has already checked
+ * that one, and a path the user typed should fail loudly rather than quietly
+ * resolve to a different file.
+ */
+std::string findConfigUpwards(const std::string &relative);
+
+/**
+ * Split a comma-separated config value into tokens.
+ *
+ * The reader knows only scalars, so a list has to travel as one string; this is
+ * the single place that turns such a string into a vector, so the ini format,
+ * the config loader and any command-line override that accepts a list all agree
+ * on what "a, b ,,c" means.
+ *
+ * Both ends of every token are trimmed - ConfigReader trims only the left of the
+ * whole value, so "a, b" arrives with a space still attached to "b" - and empty
+ * tokens are dropped, which makes a trailing comma harmless and lets a caller
+ * treat an empty result as "no list given".
+ */
+std::vector<std::string> splitList(const std::string &value);

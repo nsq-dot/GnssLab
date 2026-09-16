@@ -11,6 +11,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
+#include <vector>
 
 namespace {
 
@@ -48,6 +51,55 @@ std::string resolvePath(const std::string &baseDir, const std::string &path) {
     if (isAbsolute(path)) return toForwardSlashes(path);
     if (baseDir.empty()) return toForwardSlashes(path);
     return toForwardSlashes(baseDir) + "/" + toForwardSlashes(path);
+}
+
+std::vector<std::string> splitList(const std::string &value) {
+    const char *kWhitespace = " \t\r\n";
+
+    std::vector<std::string> out;
+    size_t pos = 0;
+
+    while (pos <= value.size()) {
+        size_t comma = value.find(',', pos);
+        std::string token = (comma == std::string::npos)
+                            ? value.substr(pos)
+                            : value.substr(pos, comma - pos);
+
+        // Both ends are trimmed, not just the left: ConfigReader trims only the
+        // left of the whole value, so "a, b" arrives with the space on "b".
+        size_t begin = token.find_first_not_of(kWhitespace);
+        if (begin != std::string::npos) {
+            size_t end = token.find_last_not_of(kWhitespace);
+            out.push_back(token.substr(begin, end - begin + 1));
+        }
+
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
+    }
+
+    return out;
+}
+
+std::string findConfigUpwards(const std::string &relative) {
+    if (relative.empty() || isAbsolute(relative)) return relative;
+
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::current_path(ec);
+    if (ec) return "";
+
+    const std::filesystem::path tail = toForwardSlashes(relative);
+
+    for (;;) {
+        std::filesystem::path candidate = dir / tail;
+        if (std::filesystem::is_regular_file(candidate, ec))
+            return toForwardSlashes(candidate.string());
+
+        // parent_path() of the root returns the root itself, so "parent != self"
+        // terminates the walk on both POSIX and Windows.
+        std::filesystem::path parent = dir.parent_path();
+        if (parent.empty() || parent == dir) return "";
+        dir = parent;
+    }
 }
 
 SPPConfigData SPPConfigData::defaults() {
@@ -172,6 +224,90 @@ CSConfigData CSConfigData::fromIni(const std::string &path) {
     c.deltaTMax = reader.getValueAsDoubleOr("deltaTMax", c.deltaTMax);
     c.threshold = reader.getValueAsDoubleOr("threshold", c.threshold);
     c.gfPolyWindow = reader.getValueAsIntOr("gfPolyWindow", c.gfPolyWindow);
+
+    return c;
+}
+
+BiasConfigData BiasConfigData::defaults() {
+    BiasConfigData c;
+
+    // The full dataset, not data/sample/: these two programs were written
+    // against the day-long files and that is what their committed outputs were
+    // produced from. A fresh clone without the download cannot run them on the
+    // defaults - pass --obs/--nav (or point the config at data/sample/) to run on
+    // the trimmed sample instead.
+    c.obsFile = "data/WUH200CHN_R_20250010000_01D_30S_MO.rnx";
+    c.navFile = "data/BRDC00IGS_R_20250010000_01D_MN.rnx";
+    c.outDir = "output/bias";
+
+    // system_bias's historical stop, and the only one of the two the shared key
+    // can carry. See the warning on the struct in ConfigData.h.
+    c.stopUTC = "2025-01-01T01:00:30";
+
+    return c;
+}
+
+BiasConfigData BiasConfigData::fromIni(const std::string &path) {
+    BiasConfigData c = defaults();
+
+    ConfigReader reader(path);
+
+    // Every key is optional; a missing key keeps the default from defaults().
+    // No outDir/outFile compatibility branch here: unlike the solver and the
+    // cycle-slip detectors, these two programs never had a placeholder ini.
+    c.obsFile = reader.getValueAsStringOr("obsFile", c.obsFile);
+    c.navFile = reader.getValueAsStringOr("navFile", c.navFile);
+    c.outDir = reader.getValueAsStringOr("outDir", c.outDir);
+    c.stopUTC = reader.getValueAsStringOr("stopUTC", c.stopUTC);
+
+    return c;
+}
+
+EphConfigData EphConfigData::defaults() {
+    EphConfigData c;
+
+    c.navFile = "data/BRDC00IGS_R_20250010000_01D_MN.rnx";
+    c.sp3File = "data/WUM0MGXFIN_20250010000_01D_05M_ORB.SP3";
+    c.outDir = "output/eph";
+
+    c.targetSat = "C01";
+    c.targetUTC = "2025-01-01T00:05:00";
+
+    // Same six satellites, in the same order, that the program used to hold in a
+    // file-scope vector. The order is the CSV row order, so it is part of the
+    // output, not a presentation detail.
+    c.satList = {"G02", "G15", "C01", "C05", "C11", "C20"};
+    c.startUTC = "2025-01-01T00:00:00";
+    c.epochCount = 2880;   // one day at 30 s
+    c.interval = 30.0;
+
+    return c;
+}
+
+EphConfigData EphConfigData::fromIni(const std::string &path) {
+    EphConfigData c = defaults();
+
+    ConfigReader reader(path);
+
+    c.navFile = reader.getValueAsStringOr("navFile", c.navFile);
+    c.sp3File = reader.getValueAsStringOr("sp3File", c.sp3File);
+    c.outDir = reader.getValueAsStringOr("outDir", c.outDir);
+
+    c.targetSat = reader.getValueAsStringOr("targetSat", c.targetSat);
+    c.targetUTC = reader.getValueAsStringOr("targetUTC", c.targetUTC);
+
+    // A list has to travel as a comma-separated string, since ConfigReader knows
+    // only scalars. An empty or all-separators value keeps the default rather
+    // than emptying the list, matching the rule that a malformed optional value
+    // falls back instead of aborting the run.
+    if (reader.has("satList")) {
+        std::vector<std::string> list = splitList(reader.getValueAsStringOr("satList", ""));
+        if (!list.empty()) c.satList = list;
+    }
+
+    c.startUTC = reader.getValueAsStringOr("startUTC", c.startUTC);
+    c.epochCount = reader.getValueAsIntOr("epochCount", c.epochCount);
+    c.interval = reader.getValueAsDoubleOr("interval", c.interval);
 
     return c;
 }

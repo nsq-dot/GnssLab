@@ -26,7 +26,10 @@ __version__ = "1.0.0"
 from .coords import ecef_delta_to_enu, enu_position_error, xyz2blh
 from .io import (
     find_manifest,
+    load_gf_detector,
+    load_gf_summary,
     load_pos_vel,
+    load_slip_manifest,
     load_spp_xyz,
     output_paths,
     read_approx_position,
@@ -39,30 +42,31 @@ __all__ = [
     # io
     "load_spp_xyz", "load_pos_vel", "read_approx_position",
     "read_manifest", "find_manifest", "output_paths",
+    "load_gf_detector", "load_gf_summary", "load_slip_manifest",
     # coords
     "xyz2blh", "ecef_delta_to_enu", "enu_position_error",
     # stats
     "component_stats", "enu_stats", "report_spp_vel",
     # submodules
-    "figures",
+    "figures", "cycleslip",
 ]
 
 
 def __getattr__(name):
-    """Import `figures` lazily.
+    """Import the submodules lazily.
 
     ``figures`` pulls in matplotlib, which takes a noticeable moment to import.
     Deferring it keeps ``gnss_plot`` usable for a stats-only task without paying
-    for a plotting stack.
+    for a plotting stack; ``cycleslip`` rides along for symmetry.
 
     Uses importlib rather than ``from . import figures``: the latter resolves the
     name through getattr(), which lands back here and recurses until the
     interpreter gives up.
     """
-    if name == "figures":
+    if name in ("figures", "cycleslip"):
         import importlib
-        module = importlib.import_module(".figures", __name__)
+        module = importlib.import_module("." + name, __name__)
         # Cache it, so later accesses bypass this hook entirely.
-        globals()["figures"] = module
+        globals()[name] = module
         return module
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

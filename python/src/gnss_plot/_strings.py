@@ -62,6 +62,64 @@ STRINGS: dict[str, dict[str, str]] = {
         "err_no_approx": "APPROX POSITION XYZ not found in the header of {path}",
         "err_missing_file": "File not found: {path}",
         "err_empty": "No data rows parsed from {path}",
+
+        # --- cycle-slip figures (chapter 7) ---
+        "title_slip_rate": "Reported slip rate by satellite",
+        "title_slip_series": "{sat} — GF series and detector statistics ({run})",
+        "title_state_composition": "Detector state composition",
+        "title_injection_outcomes": "Injected slips: per-case outcome",
+
+        "axis_sat": "Satellite",
+        "axis_slip_rate": "Reported slip rate [%]",
+        "axis_share": "Share of epoch rows [%]",
+        "axis_li": "L_I = L1 - L2 [m]",
+        "axis_stat": "|detector statistic| [m]",
+        "axis_state": "State",
+
+        "legend_detector_diff": "epoch difference",
+        "legend_detector_poly": "polynomial fit",
+        "legend_threshold": "threshold {thr:.3f} m",
+        "legend_slip_epochs": "slip reported",
+        "legend_init_epochs": "arc start",
+        "legend_gap_epochs": "data gap",
+
+        "annot_slip_rate": "{nslip} / {ntested} judged epochs = {rate:.2f}%",
+        "annot_slip_series": "{nslip} slips over {ntested} judged epochs, threshold {thr:.3f} m",
+        "annot_injection": "{run}: {tp} / {n} detected ({rate:.1f}%)",
+
+        "lbl_state_ok": "OK",
+        "lbl_state_slip": "SLIP",
+        "lbl_state_init": "INIT arc start",
+        "lbl_state_gap": "GAP data gap",
+        "lbl_state_warmup": "WARMUP window filling",
+
+        "lbl_outcome_hit": "detected",
+        "lbl_outcome_miss": "missed",
+        "lbl_outcome_decline": "declined (correct)",
+        "lbl_outcome_wrong": "slip reported (wrong)",
+
+        # --- MW figures (chapter 7) ---
+        "title_slip_rate_mw": "Reported slip rate by satellite — MW",
+        "title_mw_series": "{sat} — wide-lane ambiguity N_W and reported flags ({run})",
+        "title_crosscheck": "GF and MW on the same epochs",
+        "title_nullspace": "{sat} — the GF null space ({dn1}, {dn2})",
+        "title_nullspace_mw": "{sat} — the MW null space ({dn1}, {dn2})",
+
+        # MW is plotted as the wide-lane ambiguity, so the axis names it. The
+        # combination is metres on disk and cycles on the axis - see
+        # cycleslip.mw_wavelength.
+        "axis_mw": "N_W = N1 - N2 [cycles]",
+        # The MW deviation panel. Separate from `axis_stat` because that one is
+        # shared with the two GF detectors, which stay in metres.
+        "axis_stat_mw": "|N_W - mean| [cycles]",
+
+        "legend_detector_mw": "Melbourne-Wübbena",
+        "legend_xcheck_both": "both report a slip",
+        "legend_xcheck_gf_only": "GF only — invisible to MW",
+        "legend_xcheck_mw_only": "MW only — invisible to GF",
+
+        "annot_crosscheck": "{gf} GF flags, {mw} MW flags, {both} in common",
+        "annot_nullspace": "a slip of {dn1} / {dn2} cycles is injected here",
     },
     "zh": {
         "axis_sod": "秒内时刻 sod [s]",
@@ -106,6 +164,59 @@ STRINGS: dict[str, dict[str, str]] = {
         "err_no_approx": "在 {path} 表头找不到 APPROX POSITION XYZ",
         "err_missing_file": "文件不存在: {path}",
         "err_empty": "{path} 未解析到任何数据行",
+
+        # --- 第7章周跳图 ---
+        "title_slip_rate": "各卫星的周跳标记比例",
+        "title_slip_series": "{sat} —— GF 序列与探测器统计量（{run}）",
+        "title_state_composition": "探测器状态构成",
+        "title_injection_outcomes": "注入周跳：逐用例判定结果",
+
+        "axis_sat": "卫星",
+        "axis_slip_rate": "标记比例 [%]",
+        "axis_share": "占历元行数比例 [%]",
+        "axis_li": "L_I = L1 - L2 [m]",
+        "axis_stat": "|探测器统计量| [m]",
+        "axis_state": "状态",
+
+        "legend_detector_diff": "历元一次差分",
+        "legend_detector_poly": "多项式拟合",
+        "legend_threshold": "阈值 {thr:.3f} m",
+        "legend_slip_epochs": "报出周跳",
+        "legend_init_epochs": "弧段首历元",
+        "legend_gap_epochs": "数据中断",
+
+        "annot_slip_rate": "{nslip} / {ntested} 个已判定历元 = {rate:.2f}%",
+        "annot_slip_series": "{ntested} 个已判定历元中报出 {nslip} 次，阈值 {thr:.3f} m",
+        "annot_injection": "{run}：检出 {tp} / {n}（{rate:.1f}%）",
+
+        "lbl_state_ok": "OK",
+        "lbl_state_slip": "SLIP 周跳",
+        "lbl_state_init": "INIT 弧段首历元",
+        "lbl_state_gap": "GAP 数据中断",
+        "lbl_state_warmup": "WARMUP 窗口预热",
+
+        "lbl_outcome_hit": "检出",
+        "lbl_outcome_miss": "漏检",
+        "lbl_outcome_decline": "正确拒判",
+        "lbl_outcome_wrong": "误报周跳",
+
+        # --- MW 图（第 7 章）---
+        "title_slip_rate_mw": "各卫星的周跳标记比例 —— MW 组合",
+        "title_mw_series": "{sat} —— 宽巷模糊度 N_W 与标记（{run}）",
+        "title_crosscheck": "GF 与 MW 在相同历元上的判定对照",
+        "title_nullspace": "{sat} —— GF 的零空间（{dn1}, {dn2}）",
+        "title_nullspace_mw": "{sat} —— MW 的零空间（{dn1}, {dn2}）",
+
+        "axis_mw": "宽巷模糊度 N_W [周]",
+        "axis_stat_mw": "|N_W 偏离均值| [周]",
+
+        "legend_detector_mw": "MW 组合",
+        "legend_xcheck_both": "两者都报周跳",
+        "legend_xcheck_gf_only": "仅 GF —— MW 看不到",
+        "legend_xcheck_mw_only": "仅 MW —— GF 看不到",
+
+        "annot_crosscheck": "GF 标记 {gf} 个，MW 标记 {mw} 个，重合 {both} 个",
+        "annot_nullspace": "此历元注入 {dn1} / {dn2} 周",
     },
 }
 

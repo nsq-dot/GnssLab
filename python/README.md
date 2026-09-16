@@ -72,13 +72,19 @@ interactive use. Call `figures.configure()` when you want them.
 
 | Module | Contents |
 |---|---|
-| `io.py` | Readers for the solver output and the RINEX header, plus the manifest |
+| `io.py` | Readers for the solver output, the RINEX header, the manifest, and the chapter-7 cycle-slip output |
 | `coords.py` | ECEF ↔ geodetic, and ECEF deltas → local ENU |
 | `stats.py` | bias / sigma / RMS statistics and the console report |
-| `figures.py` | The four `fig_*` plotting functions and the matplotlib setup |
+| `cycleslip.py` | Reading a whole cycle-slip detector run, and scoring it against injected truth |
+| `figures.py` | The `fig_*` plotting functions and the matplotlib setup |
 | `_strings.py` | Every user-visible string, in English and Chinese |
 | `_find.py` | Locates CMake, Ninja, and the compiled executables |
 | `cli.py` | Argument parsing and the subcommands |
+
+`cycleslip.py` is separate from `io.py` on purpose: `io` reads one file into
+arrays, `cycleslip` walks a directory and decides what the numbers mean. Both the
+`gnss cs-plot` command and `scripts/check_cycle_slips.py` use it, so the figure
+and the printed scoreboard cannot drift apart.
 
 ## Statistics conventions
 

@@ -312,6 +312,13 @@ def main():
 
     entries = build_plan(present, cases, min_gap_epochs)
 
+    # Create the destination directory. The documented workflow writes into
+    # output/cs/injected/, which does not exist on a fresh clone, and without
+    # this the failure is a bare FileNotFoundError from inside the writer.
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
     inject(args.obs, args.out, entries, obs_types)
 
     with open(manifest, "w", encoding="utf-8", newline="\n") as fh:

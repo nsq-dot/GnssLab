@@ -23,10 +23,10 @@ project report even though the filename no longer carries the chapter number.
 | 2.3 | — | `examples/ecef_enu_test.cpp` | consolidated version of the five coordinate examples |
 | 2.4 | `exam-2.4-skyplot.cpp` | — | removed; sky-plot rendering moved to the Python layer as figures |
 | 3.1 | `exam-3.1-satid.cpp` | — | removed; `SatID` / `ObsID` are exercised throughout `src/GnssStruct.h` |
-| 3.2 | `exam-3.2-read_rinex_data.cpp` | `apps/read_rinex.cpp` | renamed |
-| 4.1 | `exam-4.1-gps_eph.cpp` | `apps/bds_eph.cpp` | rewritten for BeiDou, and extended to compare against SP3 |
-| 4.1 | — | `apps/bds_gps_diff.cpp` | added: broadcast vs precise orbit/clock, full constellation |
-| 5.1 | `exam-5.1-system_bias.cpp` | `apps/system_bias.cpp` | renamed |
+| 3.2 | `exam-3.2-read_rinex_data.cpp` | `apps/read_rinex.cpp` | renamed; **made configurable** (`config/bias.ini`) |
+| 4.1 | `exam-4.1-gps_eph.cpp` | `apps/bds_eph.cpp` | rewritten for BeiDou, extended to compare against SP3, and **made configurable** (`config/eph.ini`) |
+| 4.1 | — | `apps/bds_gps_diff.cpp` | added: broadcast vs precise orbit/clock, full constellation; **made configurable** (`config/eph.ini`) |
+| 5.1 | `exam-5.1-system_bias.cpp` | `apps/system_bias.cpp` | renamed; **made configurable** (`config/bias.ini`) |
 | 6.1 | `exam-6.1-sppif.cpp` | `apps/spp_if.cpp` | **extended** with `src/SPPVelocity.*` (Doppler velocity), a configuration file, and a command line |
 | 7.1 | `exam-7.1-cs_detect_mw.cpp` | `apps/cs_detect_mw.cpp` | **fixed and made configurable** — it could not run at all: the data directory string was missing its trailing separator, and three bugs in the free-function RINEX reader (`src/GnssFunc.cpp`) kept the header from ever finishing. Also corrected the BeiDou observation types, which selected band 6 instead of B1I/B2I |
 | 7.3 | — | `apps/cs_detect_gf.cpp` | **written here** — geometry-free combination, two detectors (epoch difference and polynomial fit), with `detectCSGFdiff` / `detectCSGFpoly` in `src/GnssFunc.cpp`. Exercises 1–3 are worked in [cycle-slip-gf.md](cycle-slip-gf.md) |
@@ -47,7 +47,7 @@ The chapters that carry original work rather than a rename:
 | 5 | Systematic-error diagnostics: TGD, ionospheric and tropospheric delay | `apps/system_bias.cpp` |
 | 7 | Melbourne–Wübbena cycle-slip detection | `apps/cs_detect_mw.cpp` |
 | 7 | Geometry-free cycle-slip detection, and the injection/validation harness for exercises 1–3 | `apps/cs_detect_gf.cpp`, `scripts/inject_cycle_slips.py`, `scripts/check_cycle_slips.py`, [cycle-slip-gf.md](cycle-slip-gf.md) |
-| — | Configuration system | `src/ConfigData.*`, `src/ConfigReader.*`, `config/` |
+| — | Configuration system: four profiles (`spp.ini`, `cs.ini`, `bias.ini`, `eph.ini`), one struct + `defaults()`/`fromIni()` pair each | `src/ConfigData.*`, `src/ConfigReader.*`, `config/` |
 | — | Accuracy analysis, plotting, and the unified CLI | `python/` |
 
 ## Library modules by chapter
@@ -60,5 +60,5 @@ The chapters that carry original work rather than a rename:
 | 4 | `src/RinexNavStore.*`, `src/NavEphGPS.*`, `src/NavEphBDS.*`, `src/SP3Store.*`, `src/Rx3ClockReader.*` |
 | 5 | `src/GnssFunc.*` (satellite position/clock, error models) |
 | 6 | `src/SolverLSQ.*`, `src/SPPIFCode.*`, `src/SPPVelocity.*` |
-| 7 | `src/CSDetector.*`, `detectCSMW()` in `src/GnssFunc.cpp` |
+| 7 | `detectCSGFdiff()`, `detectCSGFpoly()` and `detectCSMW()` in `src/GnssFunc.cpp`; `apps/cs_detect_gf.cpp`, `apps/cs_detect_mw.cpp` |
 | 8 | `src/SolverKalman.*`, `src/KalmanFilter.*`, `src/ARLambda.*` (retained, not wired into any program) |

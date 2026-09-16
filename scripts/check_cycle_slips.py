@@ -11,47 +11,24 @@ necessarily false alarms: the baseline observation file contains genuine slips
 of its own. Use --baseline to point at a run on the un-injected file, so the two
 counts can be differenced and the extra detections attributed to the injection.
 
+The join and the scoring live in ``gnss_plot.cycleslip``, so the plotting layer
+and this script cannot drift apart; this file is the command line and the
+reporting. The numbers it prints for the 1 Hz and 30 s runs are quoted in
+docs/cycle-slip-gf.md.
+
 Usage:
     python scripts/check_cycle_slips.py --manifest truth.csv --run output/cs/injected
-                                        [--mode diff|poly] [--baseline output/cs/clean]
+                                        [--mode diff|poly|mw] [--baseline output/cs/clean]
 """
 
 import argparse
-import csv
-import glob
 import os
 import sys
 
-# Column index of the status token in each detector's per-satellite output.
-STATUS_COLUMN = {"diff": 10, "poly": 10}
-FILENAME_SUFFIX = {"diff": ".gf.diff", "poly": ".gf.poly"}
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python", "src"))
 
-
-def load_run(directory, mode):
-    """Return {(sat, year, doy, sod): status} for one detector's output."""
-    suffix = FILENAME_SUFFIX[mode]
-    rows = {}
-    files = sorted(glob.glob(os.path.join(directory, "*" + suffix)))
-    if not files:
-        raise SystemExit("error: no *%s files in %s" % (suffix, directory))
-
-    status_column = STATUS_COLUMN[mode]
-    for path in files:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line.startswith("#") or not line.strip():
-                    continue
-                f = line.split()
-                if len(f) <= status_column:
-                    continue
-                key = (f[0], int(f[1]), int(f[2]), round(float(f[3]), 3))
-                rows[key] = f[status_column]
-    return rows
-
-
-def load_manifest(path):
-    with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
-        return list(csv.DictReader(fh))
+from gnss_plot import cycleslip, io  # noqa: E402
 
 
 def main():
@@ -60,13 +37,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--manifest", required=True, help="ground truth from the injector")
     ap.add_argument("--run", required=True, help="output directory of the injected run")
-    ap.add_argument("--mode", choices=("diff", "poly"), default="diff")
+    ap.add_argument("--mode", choices=("diff", "poly", "mw"), default="diff")
     ap.add_argument("--baseline", default=None,
                     help="output directory of a run on the un-injected file")
     args = ap.parse_args()
 
-    truth = load_manifest(args.manifest)
-    run = load_run(args.run, args.mode)
+    # Kept here rather than in the library: refusing to continue is the caller's
+    # decision, and a library that calls SystemExit cannot be imported safely.
+    if not cycleslip.detector_files(args.run, args.mode):
+        raise SystemExit("error: no *%s files in %s"
+                         % (cycleslip.FILENAME_SUFFIX[args.mode], args.run))
+
+    truth = io.load_slip_manifest(args.manifest)
+    run = cycleslip.load_detector_run(args.run, args.mode)
+    baseline = (cycleslip.load_detector_run(args.baseline, args.mode)
+                if args.baseline else None)
+    score = cycleslip.score_injection(truth, run, baseline=baseline)
 
     print("detector: %s" % args.mode)
     print("run     : %s  (%d rows)" % (args.run, len(run)))
@@ -77,65 +63,33 @@ def main():
     print(header)
     print("-" * len(header))
 
-    tp = fn = 0
-    status_ok = status_bad = 0
-
-    injected_keys = set()
-    for row in truth:
-        key = (row["sat"], int(row["year"]), int(row["doy"]), round(float(row["sod"]), 3))
-        injected_keys.add(key)
-
-        status = run.get(key, "MISSING")
-        expect = row["expect"]
-
-        if expect == "SLIP":
-            if status == "SLIP":
-                tp += 1
-                verdict = "detected"
-            else:
-                fn += 1
-                verdict = "MISSED"
-        else:
-            # The detector should have declined to judge here. Reporting a slip
-            # is the specific failure this case exists to catch.
-            if status == expect:
-                status_ok += 1
-                verdict = "correct"
-            else:
-                status_bad += 1
-                verdict = "WRONG (expected %s)" % expect
-
-        print("%-5s %-9s %-15s %5s,%-4s %+9.4f  %-9s %s" % (
-            row["sat"], "%s/%s" % (row["year"], row["doy"]), row["label"],
-            row["dN1"], row["dN2"], float(row["expected_dLI_m"]),
-            status, verdict))
+    for c in score["cases"]:
+        # The cycle counts print through a float format rather than the manifest's
+        # own text, so the table does not depend on how the injector spelled them.
+        print("%-5s %-9s %-15s %5.0f,%-4.0f %+9.4f  %-9s %s" % (
+            c["sat"], "%s/%s" % (c["year"], c["doy"]), c["label"],
+            c["dN1"], c["dN2"], c["expected_dLI_m"],
+            c["status"], c["verdict"]))
 
     print()
+    tp, fn = score["tp"], score["fn"]
     print("injected slips to detect : %d" % (tp + fn))
     print("  detected (TP)          : %d" % tp)
     print("  missed   (FN)          : %d" % fn)
-    if tp + fn:
-        print("  detection rate         : %.1f%%" % (100.0 * tp / (tp + fn)))
+    if score["rate"] is not None:
+        print("  detection rate         : %.1f%%" % (100.0 * score["rate"]))
     print("adversarial placements   : %d correct, %d wrong"
-          % (status_ok, status_bad))
+          % (score["adversarial_ok"], score["adversarial_bad"]))
 
-    # Detections away from any injected epoch. Not "false alarms" on real data -
-    # the file has genuine slips - so the baseline run is what makes this number
-    # interpretable.
-    extras = [k for k, v in run.items() if v == "SLIP" and k not in injected_keys]
-    tested = sum(1 for v in run.values() if v in ("OK", "SLIP"))
     print()
     print("detections not injected  : %d  (of %d judged epochs = %.2f%%)"
-          % (len(extras), tested, 100.0 * len(extras) / tested if tested else 0.0))
+          % (score["extra_detections"], score["tested"], 100.0 * score["extra_rate"]))
 
     if args.baseline:
-        base = load_run(args.baseline, args.mode)
-        base_slip = sum(1 for v in base.values() if v == "SLIP")
-        run_slip = sum(1 for v in run.values() if v == "SLIP")
-        print("baseline run (%s): %d detections" % (args.baseline, base_slip))
-        print("this run                : %d detections" % run_slip)
+        print("baseline run (%s): %d detections" % (args.baseline, score["baseline_slip"]))
+        print("this run                : %d detections" % score["run_slip"])
         print("difference              : %+d  (injected %d, detected %d)"
-              % (run_slip - base_slip, tp + fn, tp))
+              % (score["run_slip"] - score["baseline_slip"], tp + fn, tp))
 
 
 if __name__ == "__main__":

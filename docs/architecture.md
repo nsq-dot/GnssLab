@@ -26,7 +26,8 @@ in [data-format.md](data-format.md) and enforced by `tests/test_regression_pipel
 
 ## Why the CLI is in Python
 
-`gnss` is a Python console script that orchestrates the C++ binaries. A C++
+`gnss` is a Python console script that orchestrates the C++ binaries
+(`build`, `spp`, `plot`, `run`, `demo`, `cs-plot`, `app`, `ex`). A C++
 dispatcher was considered and rejected:
 
 - It could not run the plotting step. The seam is a *file*, not a link, so
@@ -54,7 +55,7 @@ and `examples/` linking against it.
 | Core data | `GnssStruct.*` — `SatID`, `ObsID`, observational data |
 | Algorithms | `GnssFunc.*` — satellite position/clock, error models |
 | Product readers | `RinexObsReader.*`, `RinexNavStore.*`, `NavEphGPS.*`, `NavEphBDS.*`, `SP3Store.*`, `Rx3ClockReader.*`, `EphStore.h` |
-| Estimation | `SolverLSQ.*`, `SPPIFCode.*`, `SPPVelocity.*`, `CSDetector.*` |
+| Estimation | `SolverLSQ.*`, `SPPIFCode.*`, `SPPVelocity.*` |
 | Not yet wired | `SolverKalman.*`, `KalmanFilter.*`, `ARLambda.*` |
 | Configuration | `ConfigData.*`, `ConfigReader.*` |
 
@@ -70,10 +71,11 @@ related MinGW issue.
 
 | Module | Responsibility |
 |---|---|
-| `io.py` | Reads the solver output and the RINEX header; reads the manifest |
+| `io.py` | Reads the solver output, the RINEX header, the manifest, and the chapter-7 cycle-slip output |
 | `coords.py` | ECEF ↔ geodetic, ECEF deltas → ENU |
 | `stats.py` | bias / sigma / RMS, and the console report |
-| `figures.py` | The four `fig_*` functions and matplotlib setup |
+| `cycleslip.py` | Reads a whole cycle-slip detector run and scores it against injected truth |
+| `figures.py` | The `fig_*` functions and matplotlib setup |
 | `_strings.py` | Every user-visible string, in English and Chinese |
 | `_find.py` | Locates CMake, Ninja, and the compiled binaries |
 | `cli.py` | Subcommand dispatch |

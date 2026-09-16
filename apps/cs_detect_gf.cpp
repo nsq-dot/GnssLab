@@ -206,6 +206,18 @@ int main(int argc, char *argv[]) {
     CSConfigData cfg = CSConfigData::defaults();
     string configDir;
 
+    // The default config name is relative to the repository root, but the working
+    // directory is often the build tree (CLion runs a target from its binary
+    // directory). Search upwards for the default; an explicitly named file is
+    // taken at its word. See findConfigUpwards() in ConfigData.h.
+    if (!haveConfigArg && !fileExists(configFile)) {
+        string found = findConfigUpwards(configFile);
+        if (!found.empty()) {
+            configFile = found;
+            cerr << "Note: using config found by searching upwards: " << configFile << "\n";
+        }
+    }
+
     if (!fileExists(configFile)) {
         if (haveConfigArg) {
             cerr << "Error: cannot open config file: " << configFile << "\n";

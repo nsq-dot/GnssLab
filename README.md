@@ -72,7 +72,7 @@ Requirements: a C++20 compiler (GCC 11+, Clang 14+, or MSVC 19.3+), CMake 3.20+,
 and Python 3.9+ with numpy and matplotlib. Ninja is used when available.
 
 ```bash
-git clone <your-fork-url> && cd GnssLab
+git clone https://github.com/nsq-dot/GnssLab.git && cd GnssLab
 
 cd python && pip install -e . && cd ..   # registers the `gnss` command
 gnss build                               # configure and build all 13 targets
@@ -235,6 +235,6 @@ primarily under MPL-2.0, with some files under BSD, LGPL and Apache. See
   author = {Wu, Donghao},
   year   = {2025},
   note   = {Built on the gnssLab-2.4 framework by Shoujian Zhang, Wuhan University},
-  url    = {https://github.com/<your-username>/GnssLab}
+  url    = {https://github.com/nsq-dot/GnssLab}
 }
 ```

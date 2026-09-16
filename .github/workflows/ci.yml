@@ -20,7 +20,10 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build python3 python3-pip
+          # fonts-noto-cjk is not optional: the chapter-7 figures are generated
+          # with --lang zh, and without a CJK font matplotlib warns and then
+          # draws a page of empty boxes instead of failing.
+          sudo apt-get install -y build-essential cmake ninja-build python3 python3-pip fonts-noto-cjk
 
       - name: Show versions
         run: |
@@ -43,7 +46,7 @@ jobs:
 
       - name: Check all targets were produced
         run: |
-          expected="spp_if system_bias read_rinex bds_eph bds_gps_diff cs_detect_mw matrix_calculator
+          expected="spp_if system_bias read_rinex bds_eph bds_gps_diff cs_detect_mw cs_detect_gf matrix_calculator
                     parse_opt parse_config gpst_to_utc bdweek_to_commontime jd2020_test ecef_enu_test"
           missing=0
           for t in $expected; do
@@ -68,6 +71,17 @@ jobs:
       - name: End-to-end regression on the sample dataset
         run: python3 tests/test_regression_pipeline.py --required
 
+      # The auxiliary programs' config files and command lines. Its first two
+      # groups need no data; the last one needs the SP3 precise orbit, which is
+      # not committed, so that group skips even under --required rather than
+      # failing CI for a missing download.
+      - name: Auxiliary program config smoke test
+        run: python3 tests/test_apps_config_smoke.py --required
+
+      # Needs nothing but itself: the fixtures are written by the test.
+      - name: Cycle-slip scoring test
+        run: python3 tests/test_cycleslip_scoring.py
+
       - name: Figures are generated
         run: |
           python3 -m pytest --version >/dev/null 2>&1 || python3 -m pip install pytest
@@ -79,12 +93,47 @@ jobs:
           test "$(ls -1 /tmp/figs/*.png 2>/dev/null | wc -l)" -eq 4
           echo "4 figures written"
 
+      # The chapter-7 figures, on the only data CI has. The 1 Hz zero baseline is
+      # not committed, so the 1 Hz half of the experiment is absent by
+      # construction and the command skips those figures with a warning - which
+      # makes the expected count 7, not 10. The count IS the test of that skip
+      # path: the three figures that need 1 Hz outright are §一's MW series for
+      # G08, the GF series for G01 and the GF null-space one, and four more lose
+      # a panel rather than a figure (the slip-rate bars, the injection
+      # scoreboard, the MW bars, the cross-check).
+      - name: Cycle-slip figures are generated
+        run: |
+          ./build/bin/cs_detect_gf --obs data/sample/WUH200CHN_R_20250010000_01D_30S_MO.rnx \
+              --out-dir output/_cs/sample-30s --mode both --window 20
+          python3 scripts/inject_cycle_slips.py \
+              --obs data/sample/WUH200CHN_R_20250010000_01D_30S_MO.rnx \
+              --out output/_cs/injected/wuh2-injected.rnx --plan sample
+          ./build/bin/cs_detect_gf --obs output/_cs/injected/wuh2-injected.rnx \
+              --out-dir output/_cs/injected/run-30s --mode both --window 20
+          ./build/bin/cs_detect_mw --obs data/sample/WUH200CHN_R_20250010000_01D_30S_MO.rnx \
+              --out-dir output/_cs/sample-30s-mw
+          ./build/bin/cs_detect_mw --obs output/_cs/injected/wuh2-injected.rnx \
+              --out-dir output/_cs/injected/run-30s-mw
+          PYTHONPATH=python/src python3 -m gnss_plot.cli cs-plot \
+              --cs-dir output/_cs --png-dir /tmp/csfigs --lang zh \
+              --series sample-30s:G24
+          test "$(ls -1 /tmp/csfigs/vis_cs_*.png 2>/dev/null | wc -l)" -eq 7
+          echo "7 cycle-slip figures written (the 1 Hz ones skipped, as expected)"
+
       - name: Upload figures
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: figures-${{ matrix.build_type }}
           path: /tmp/figs/*.png
+          if-no-files-found: ignore
+
+      - name: Upload cycle-slip figures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs-figures-${{ matrix.build_type }}
+          path: /tmp/csfigs/vis_cs_*.png
           if-no-files-found: ignore
 
   cmake-minimum-version:

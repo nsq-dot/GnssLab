@@ -58,6 +58,7 @@ PL_IonoCompare.csv
 *_Iono.txt
 trop_*.txt
 tx_*.csv
+sat_pos_vel_diff*.csv
 
 # ...but the frozen regression baselines are source, not output.
 !tests/baseline/

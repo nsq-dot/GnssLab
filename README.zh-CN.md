@@ -64,7 +64,7 @@
 Python 3.9+ 及 numpy、matplotlib。若装了 Ninja 会自动使用。
 
 ```bash
-git clone <你的仓库地址> && cd GnssLab
+git clone https://github.com/nsq-dot/GnssLab.git && cd GnssLab
 
 cd python && pip install -e . && cd ..   # 注册 `gnss` 命令
 gnss build                               # 配置并编译全部 13 个目标
@@ -214,6 +214,6 @@ BSD、LGPL 与 Apache 许可。详见 [`NOTICE`](NOTICE) 第 3 节与
   author = {吴东昊},
   year   = {2025},
   note   = {基于武汉大学 gnssLab-2.4 教学框架（张守建）},
-  url    = {https://github.com/<你的用户名>/GnssLab}
+  url    = {https://github.com/nsq-dot/GnssLab}
 }
 ```

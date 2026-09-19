@@ -24,6 +24,8 @@
 #include <iostream>
 #include <set>
 #include <map>
+#include <vector>
+#include <functional>
 #include <filesystem>
 #include <system_error>
 
@@ -119,6 +121,94 @@ inline std::map<string, std::set<string>> cycleSlipObsTypes(bool gps, bool bds) 
     }
 
     return sysTypes;
+}
+
+/**
+ * One selectable constellation + frequency pair for the RTK solver.
+ *
+ * `rawTypes` are the three-character RINEX names to hand RinexObsReader;
+ * `codePair` is the two-character pair (after convertObsType collapses "C1C" to
+ * "C1") that SPPUCCodePhase derives its four observation types from - it builds
+ * the phase types by swapping the leading C for an L, so C2/C7 implies L2/L7.
+ *
+ * ## Why BeiDou has two entries and neither is a superset
+ *
+ * The two BeiDou generations do not carry the same second frequency:
+ *
+ *   BDS-2 (C01..C16)   B1I + B2I    RINEX C2I + C7I    B2I = 1207.140 MHz
+ *   BDS-3 (C19..)      B1I + B2a    RINEX C2I + C5P    B2a = 1176.450 MHz
+ *
+ * So B1I+B2I silently restricts the solution to BDS-2 satellites, and B1I+B2a
+ * silently restricts it to BDS-3. Verified against data/Zero-baseline: the
+ * BDS-3 satellites carry C1P and C5P and no C7I at all, and the BDS-2 ones
+ * carry C7I and no C5P. On the zero-baseline set both choices yield six
+ * satellites, but BDS-2's six are IGSO-dominated and clustered over the
+ * Asia-Pacific, while BDS-3's six are MEOs - and the RTK result differs by
+ * roughly 15x. Neither pair is "the right one"; the exercise is to compare.
+ *
+ * Note this table is deliberately NOT the one cycleSlipObsTypes() returns. The
+ * chapter-7 detectors are locked to B1I/B2I because that is what they were
+ * built and validated against; RTK is free to choose. Keeping the two tables
+ * apart is the point - do not merge them.
+ */
+struct RtkMode {
+    string key;                          // "gps" | "bds2" | "bds3"
+    string system;                       // "G" or "C"
+    string label;                        // human-readable, for --help and the manifest
+    std::set<string> rawTypes;           // 3-char names to select in the RINEX reader
+    std::pair<string, string> codePair;  // 2-char names used by SPPUCCodePhase::dualCodeTypes
+};
+
+/// Every mode the program accepts, in the order --help lists them.
+inline std::vector<RtkMode> rtkModes() {
+    std::vector<RtkMode> m;
+
+    RtkMode gps;
+    gps.key = "gps";
+    gps.system = "G";
+    gps.label = "GPS L1/L2 (C1C+C2W)";
+    gps.rawTypes = {"C1C", "C2W", "L1C", "L2W"};
+    gps.codePair = {"C1", "C2"};
+    m.push_back(gps);
+
+    RtkMode bds2;
+    bds2.key = "bds2";
+    bds2.system = "C";
+    bds2.label = "BDS-2 B1I/B2I (C2I+C7I)";
+    bds2.rawTypes = {"C2I", "C7I", "L2I", "L7I"};
+    bds2.codePair = {"C2", "C7"};
+    m.push_back(bds2);
+
+    RtkMode bds3;
+    bds3.key = "bds3";
+    bds3.system = "C";
+    bds3.label = "BDS-3 B1I/B2a (C2I+C5P)";
+    bds3.rawTypes = {"C2I", "C5P", "L2I", "L5P"};
+    bds3.codePair = {"C2", "C5"};
+    m.push_back(bds3);
+
+    return m;
+}
+
+/// Look up a mode by its key. Returns false when the key is not one of them.
+inline bool findRtkMode(const string &key, RtkMode &out) {
+    for (const RtkMode &m : rtkModes()) {
+        if (m.key == key) {
+            out = m;
+            return true;
+        }
+    }
+    return false;
+}
+
+/// All mode keys joined for an error message, e.g. "gps, bds2, bds3".
+inline string rtkModeKeys() {
+    string s;
+    for (const RtkMode &m : rtkModes()) {
+        if (!s.empty()) s += ", ";
+        s += m.key;
+    }
+    return s;
 }
 
 #endif //GNSSLAB_APP_UTILS_H

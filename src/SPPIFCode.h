@@ -108,6 +108,18 @@ public:
         return xyz;
     }
 
+    // The linearized observation equations last produced by linearize().
+    //
+    // Lives here rather than on SPPUCCodePhase because `equSys` is declared in
+    // this class (below, under `protected`) and every other accessor for it -
+    // getDatumSat(), getSatElevData(), getXYZ() - is already here. The RTK
+    // driver in apps/rtk_float.cpp reaches for all four through the derived
+    // object.
+    const EquSys& getEquSys() const
+    {
+        return equSys;
+    }
+
     Result getResult();
 
     ~SPPIFCode(){};

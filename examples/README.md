@@ -15,6 +15,17 @@ None of them do any file I/O or need a dataset.
 | `bdweek_to_commontime` | BeiDou week/second → `CommonTime`, and on to GPS and UTC |
 | `jd2020_test` | BeiDou week/second → JD2020, and the round trip back |
 | `ecef_enu_test` | ECEF ↔ geodetic conversion, and satellite elevation/azimuth |
+| `sync_obs` | Epoch alignment between two receivers, including the case where the reference stream has already passed the epoch being sought (chapter 8.4, step 4) |
+| `diff_station` | Between-station and between-satellite differencing: what `differenceStation` and `differenceSat` do to an equation system, and what rank deficiency looks like (chapter 8.3.1–8.3.2) |
+
+`sync_obs` and `diff_station` read a small text description of their input from
+standard input, and each falls back to a built-in example when given none — so
+they still do no file I/O and need no dataset:
+
+```bash
+./build/bin/diff_station          # two examples: one well posed, one rank deficient
+./build/bin/sync_obs              # a match, a skipped epoch, and running out of data
+```
 
 ## Running
 

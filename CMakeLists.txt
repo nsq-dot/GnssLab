@@ -54,6 +54,7 @@ add_library(gnss STATIC
         src/Rx3ClockReader.cpp
         src/SP3Store.cpp
         src/SPPIFCode.cpp
+        src/SPPUCCodePhase.cpp
         src/SPPVelocity.cpp
         src/SolverKalman.cpp
         src/SolverLSQ.cpp
@@ -95,6 +96,7 @@ set(GNSS_APPS
         bds_gps_diff      # broadcast vs precise orbit/clock, full constellation
         cs_detect_mw      # Melbourne-Wübbena cycle-slip detection
         cs_detect_gf      # geometry-free cycle-slip detection (diff + polynomial)
+        rtk_float         # RTK single-epoch least-squares float solution
         matrix_calculator # Eigen matrix calculator
 )
 
@@ -113,6 +115,8 @@ set(GNSS_EXAMPLES
         bdweek_to_commontime  # BeiDou week/second -> CommonTime
         jd2020_test           # BDS week/second -> JD2020, round-trip
         ecef_enu_test         # ECEF <-> ENU, elevation and azimuth
+        sync_obs              # epoch alignment between two receivers
+        diff_station          # between-station and between-satellite differencing
 )
 
 foreach(ex ${GNSS_EXAMPLES})

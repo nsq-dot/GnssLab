@@ -151,6 +151,72 @@ struct CSConfigData {
 };
 
 /**
+ * RTK configuration, read from `config/rtk.ini`.
+ *
+ * Kept separate from SPPConfigData for the same reason CSConfigData is, and for
+ * two more that have no analogue there:
+ *
+ *  - a SECOND observation file. RTK is relative positioning, so the base
+ *    station's observations are an input, not an option. Nothing else in the
+ *    repository takes two observation files.
+ *  - `sys`. Which constellation and which frequency pair is a scientific
+ *    setting, not a convenience: it decides which satellites take part at all.
+ *    The exercise compares GPS against BeiDou, so the choice belongs with the
+ *    run rather than in the head of whoever typed the command.
+ */
+struct RTKConfigData {
+
+    // ---- files ----
+    /// Roving receiver's RINEX observation file, relative to the config's directory.
+    std::string obsFile;
+    /// Base receiver's RINEX observation file. The two receivers must have been
+    /// observing at the same times; epochs are matched by time, not by index.
+    std::string baseObsFile;
+    /// RINEX broadcast navigation file, shared by both receivers.
+    std::string navFile;
+    /// Directory for the solution and diagnostics files.
+    std::string outDir;
+
+    // ---- epoch control ----
+    /// Stop after this epoch, as "YYYY-MM-DDTHH:MM:SS". Empty means "to the end".
+    std::string stopUTC;
+
+    // ---- constellation and frequencies ----
+    /**
+     * Which constellation and frequency pair to solve:
+     *
+     *   "gps"    GPS    L1/L2   RINEX C1C + C2W   1575.420 / 1227.600 MHz
+     *   "bds2"   BDS-2  B1I/B2I RINEX C2I + C7I   1561.098 / 1207.140 MHz
+     *   "bds3"   BDS-3  B1I/B2a RINEX C2I + C5P   1561.098 / 1176.450 MHz
+     *
+     * "bds2" and "bds3" are neither interchangeable nor nested: the Beidou
+     * generations broadcast different second frequencies. BDS-2 carries B2I but
+     * no B2a; BDS-3 carries B2a but no B2I. Selecting B2I therefore restricts
+     * the solution to BDS-2 satellites, which on the zero-baseline set means six
+     * IGSO/MEO satellites whose geometry is markedly worse than the BDS-3 MEOs'.
+     * That is measured, not assumed - see docs/rtk.md.
+     */
+    std::string sys;
+
+    // ---- model ----
+    /// Elevation mask for the observation equations. [deg]
+    /// Pinned at 10 because that is SPPIFCode's own default, and the frozen
+    /// `oem719-...obs.rtk.lsq.out` baseline was produced with it.
+    double cutOffElevation;
+
+    /// Values used when no config file is supplied or a key is absent.
+    static RTKConfigData defaults();
+
+    /**
+     * Read a configuration file. Every key is optional; anything absent keeps
+     * its `defaults()` value. Throws std::runtime_error only if the file exists
+     * but cannot be opened. Relative paths are returned as written - use
+     * resolvePath() to make them absolute against the config file's directory.
+     */
+    static RTKConfigData fromIni(const std::string &path);
+};
+
+/**
  * Systematic-bias / RINEX-inventory configuration, shared by
  * apps/system_bias and apps/read_rinex, read from `config/bias.ini`.
  *

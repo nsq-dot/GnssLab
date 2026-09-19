@@ -228,6 +228,47 @@ CSConfigData CSConfigData::fromIni(const std::string &path) {
     return c;
 }
 
+RTKConfigData RTKConfigData::defaults() {
+    RTKConfigData c;
+
+    // Unlike config/spp.ini there is no committed dataset to point at: RTK needs
+    // a base receiver as well as a rover, and the only such pair in the project
+    // is data/Zero-baseline/, which is gitignored (2 x ~95 MB). A fresh clone
+    // therefore has to pass --obs/--base-obs, or point the config at its own
+    // data. Naming the file that the shipped config/rtk.ini also names keeps a
+    // local run working out of the box.
+    c.obsFile     = "data/Zero-baseline/oem719-202203031500-1.obs";
+    c.baseObsFile = "data/Zero-baseline/oem719-202203031500-2.obs";
+    c.navFile     = "data/Zero-baseline/BRDC00IGS_R_20220620000_01D_MN.rnx";
+    c.outDir      = "output/rtk";
+    c.stopUTC     = "";   // run to the end of the file
+
+    c.sys = "gps";
+
+    c.cutOffElevation = 10.0;
+
+    return c;
+}
+
+RTKConfigData RTKConfigData::fromIni(const std::string &path) {
+    RTKConfigData c = defaults();
+
+    ConfigReader reader(path);
+
+    // Every key is optional; a missing key keeps the default from defaults().
+    c.obsFile     = reader.getValueAsStringOr("obsFile", c.obsFile);
+    c.baseObsFile = reader.getValueAsStringOr("baseObsFile", c.baseObsFile);
+    c.navFile     = reader.getValueAsStringOr("navFile", c.navFile);
+    c.outDir      = reader.getValueAsStringOr("outDir", c.outDir);
+    c.stopUTC     = reader.getValueAsStringOr("stopUTC", c.stopUTC);
+
+    c.sys = reader.getValueAsStringOr("sys", c.sys);
+
+    c.cutOffElevation = reader.getValueAsDoubleOr("cutOffElevation", c.cutOffElevation);
+
+    return c;
+}
+
 BiasConfigData BiasConfigData::defaults() {
     BiasConfigData c;
 

@@ -1421,7 +1421,10 @@ void differenceSat( SatID& datumSat,
         // 需要在基准ObsID里找EquData，来构成星间差分，
         // 如果找不到就剔除这个卫星；
         // 因此需要捕获异常，来处理找不到的情况；
-        cout << "differenceSat:" << "sat:" << ed.first.sat << endl;
+        // 这行原先没有 if 保护：它在逐卫星循环里，1 Hz 的零基线文件上每个
+        // 历元每颗星都打一行，无法关闭。改为跟随本文件既有的 debug 开关。
+        if (debug)
+            cout << "differenceSat:" << "sat:" << ed.first.sat << endl;
         double prefitDatum;
         ObsID currentObsID = ObsID(ed.first.sat.system, ed.first.obsType);
         try {
@@ -1524,22 +1527,26 @@ void differenceStation(EquSys& equSysRover, VariableDataMap& csFlagRover,
     }
 
     // 单差周跳
-    cout << "differenceStation:" << "csFlagRover:" << endl;
-    for(auto cd:csFlagRover)
+    // 这三个块原先同样没有 if 保护。
+    if (debug)
     {
-        cout << "cs:" << cd.first << " flag:" << cd.second;
-    }
+        cout << "differenceStation:" << "csFlagRover:" << endl;
+        for(auto cd:csFlagRover)
+        {
+            cout << "cs:" << cd.first << " flag:" << cd.second;
+        }
 
-    cout << "differenceStation:" << "csFlagBase:" << endl;
-    for(auto cd:csFlagBase)
-    {
-        cout << "cs:" << cd.first << " flag:" << cd.second;
-    }
+        cout << "differenceStation:" << "csFlagBase:" << endl;
+        for(auto cd:csFlagBase)
+        {
+            cout << "cs:" << cd.first << " flag:" << cd.second;
+        }
 
-    cout << "differenceStation:" << "csFlagSD:" << endl;
-    for(auto cd:csFlagSD)
-    {
-        cout << "cs:" << cd.first << " flag:" << cd.second;
+        cout << "differenceStation:" << "csFlagSD:" << endl;
+        for(auto cd:csFlagSD)
+        {
+            cout << "cs:" << cd.first << " flag:" << cd.second;
+        }
     }
 
 };
@@ -1596,7 +1603,10 @@ void differenceSat( SatID& datumSat,
         // 需要在基准ObsID里找EquData，来构成星间差分，
         // 如果找不到就剔除这个卫星；
         // 因此需要捕获异常，来处理找不到的情况；
-        cout << "differenceSat:" << "sat:" << ed.first.sat << endl;
+        // 这行原先没有 if 保护：它在逐卫星循环里，1 Hz 的零基线文件上每个
+        // 历元每颗星都打一行，无法关闭。改为跟随本文件既有的 debug 开关。
+        if (debug)
+            cout << "differenceSat:" << "sat:" << ed.first.sat << endl;
         double prefitDatum;
         ObsID currentObsID = ObsID(ed.first.sat.system, ed.first.obsType);
         try {

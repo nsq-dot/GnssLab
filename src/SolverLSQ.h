@@ -41,6 +41,17 @@ public:
         return dxyz;
     };
 
+    // Full estimated state and its covariance, in `equSys.varSet` order.
+    //
+    // Only dxyz was reachable before, which is enough for a position but not for
+    // anything that needs the ambiguity block: the float solution's covariance
+    // is the input to LAMBDA, and the post-fit residual (hence sigma0, hence any
+    // honest outlier test) needs the whole state rather than the three
+    // coordinates. Same accessors SolverKalman already exposes.
+    Eigen::VectorXd getState() const { return state; }
+    Eigen::MatrixXd getCovMatrix() const { return covMatrix; }
+    const VariableSet &getUnkSet() const { return currentUnkSet; }
+
     /// Destructor.
     virtual ~SolverLSQ() {};
 

@@ -19,7 +19,16 @@
 #include "SolverLSQ.h"
 #include <fstream>
 
-#define debug 1
+// 诊断默认关闭。这里打印整张 hMatrix / wMatrix / state，逐历元都来一遍；
+// 只影响 stdout，不参与任何数值计算，所以开关不可能移动回归基线。
+#ifndef GNSSLAB_DEBUG_SOLVER
+#define GNSSLAB_DEBUG_SOLVER 0
+#endif
+
+// CoordConvert.h 已经给 debug 提供了默认值，必须先撤销再重定义。
+#undef debug
+#define debug GNSSLAB_DEBUG_SOLVER
+
 using namespace std;
 
 
@@ -101,29 +110,37 @@ int SolverLSQ::getIndex(const VariableSet &varSet, const Variable &thisVar) {
     int index(0);
     for (auto var: varSet) {
         if (var == thisVar) {
-            break;
+            return index;
         }
         index++;
     }
-    return index;
+    // Not found. This used to fall through and return varSet.size(), which the
+    // caller in solve() then used as a COLUMN INDEX into hMatrix - one past the
+    // last column, i.e. a silent out-of-bounds write into the next row (or off
+    // the end of the buffer for the last row). Throwing turns a memory
+    // corruption into a diagnosable error.
+    InvalidRequest e("SolverLSQ::getIndex: variable not present in varSet.");
+    throw (e);
 };
 
 double SolverLSQ::getSolution(Parameter::ParameterName paraType,
                               VariableSet &currentUnkSet,
                               const VectorXd &stateVec)
 noexcept(false) {
-    auto varIt = currentUnkSet.begin();
+    // The end-of-range test used to sit INSIDE the loop, after the dereference,
+    // so a parameter that was absent - or an entirely empty unknown set, which
+    // is what an epoch whose double differences all got dropped produces -
+    // dereferenced end(). Checking at the top is the same for every input that
+    // found the parameter, and defined for the ones that did not.
     int index(0);
-    while ((*varIt).getParaType() != paraType) {
-        if (varIt == currentUnkSet.end()) {
-            InvalidRequest e("SolverLSQ::Type not found in state vector.");
-            throw (e);
+    for (auto varIt = currentUnkSet.begin(); varIt != currentUnkSet.end(); ++varIt, ++index) {
+        if ((*varIt).getParaType() == paraType) {
+            return stateVec(index);
         }
-        index++;
-        varIt++;
     }
-    return stateVec(index);
+    InvalidRequest e("SolverLSQ::Type not found in state vector.");
+    throw (e);
 
-}  // End of method 'SolverGeneral::getSolution()'   
+}  // End of method 'SolverGeneral::getSolution()'
 
 

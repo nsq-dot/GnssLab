@@ -3,7 +3,17 @@
 #include "CoordConvert.h"
 #include <Eigen/Eigen>
 
-#define debug 1
+// 诊断默认关闭：这些块在逐历元、逐观测值的循环里，1 Hz 的整日文件上输出极大。
+// 只打印，不参与任何数值计算——spp_if 的两个冻结基线比对的是输出文件，不是
+// stdout，所以这个开关不可能移动基线。用 -DGNSSLAB_DEBUG_SPP=1 打开。
+#ifndef GNSSLAB_DEBUG_SPP
+#define GNSSLAB_DEBUG_SPP 0
+#endif
+
+// 上面 include 的 CoordConvert.h 已经给 debug 提供了默认值（它自己的内联函数
+// 要用），所以必须先撤销再重定义，否则是宏重定义。
+#undef debug
+#define debug GNSSLAB_DEBUG_SPP
 
 void SPPIFCode::solve(ObsData &obsData) {
     //----------------------

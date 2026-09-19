@@ -5,9 +5,12 @@ python tests/test_plot_utils.py             # no data, no build needed
 python tests/test_baseline_numerics.py      # no data needed (uses tests/baseline/)
 python tests/test_regression_pipeline.py --required   # needs build + data/sample/
 python tests/test_apps_config_smoke.py --required     # needs build + data/sample/
+python tests/test_cycleslip_scoring.py --required     # needs build + data/sample/
+python tests/test_rtk_equations.py --required         # needs build only
+python tests/test_rtk_float_regression.py             # needs build + data/Zero-baseline/
 ```
 
-All four also run standalone or under pytest:
+They also run standalone or under pytest:
 
 ```bash
 python -m pytest tests/ -q
@@ -20,13 +23,35 @@ ctest --test-dir build --output-on-failure     # runs baseline_numerics
 | `test_baseline_numerics.py` | nothing | The frozen baseline: hashes, statistics, cross-file consistency |
 | `test_regression_pipeline.py` | a build + `data/sample/` | The whole chain, end to end |
 | `test_apps_config_smoke.py` | a build; `data/sample/` for half of it | The auxiliary programs' config and command line |
+| `test_cycleslip_scoring.py` | a build + `data/sample/` | The cycle-slip detectors' scoring |
+| `test_rtk_equations.py` | a build only | The double-difference construction: what `differenceStation` / `differenceSat` drop, the single-difference weight combination, and rank deficiency |
+| `test_rtk_float_regression.py` | a build + `data/Zero-baseline/` | The RTK float solution against the original program's own output |
 
 The first two run on a bare checkout. That is deliberate: a contributor who has
 cloned the repository but not downloaded 500 MB of data should still get a
-meaningful green result rather than an error. The last two **skip** with a clear
+meaningful green result rather than an error. The rest **skip** with a clear
 message when the sample or the binary is missing, and fail only under
 `--required` — which is what CI uses, so a missing sample can never silently
 pass there.
+
+## The two RTK tests, and why there are two
+
+`test_rtk_float_regression.py` needs `data/Zero-baseline/`, which is gitignored
+(about 95 MB per observation file), so it **never runs in CI**. What it buys is
+an external anchor: `oem719-202203031500-1.obs.rtk.lsq.out` was written by the
+original gnssLab-2.2 program on the same input, and the `rtk:` column of the new
+output is asserted **byte-identical** to it, all 25 epochs. The `spp:` column
+gets a 15 m tolerance instead, and the file explains why — the single-point solve
+carries a free ambiguity per phase equation, so its normal matrix is singular in
+those directions and different builds disagree by metres while the same build is
+self-consistent to the last digit. Asserting the strict column and tolerating the
+loose one states both facts; asserting the whole line would be a permanently red
+test, and asserting nothing would throw the anchor away.
+
+`test_rtk_equations.py` covers the part that can run anywhere. The difference
+stage is pure linear algebra over an equation system, so it is driven with
+hand-built fixtures through `examples/diff_station`, which reads them from stdin
+and ships its own examples in the binary. That is the test CI runs.
 
 `test_apps_config_smoke.py` is the one exception to that rule: its last group of
 checks needs the SP3 precise orbit, which is **not committed**, so it skips

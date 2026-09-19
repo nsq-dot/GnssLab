@@ -120,6 +120,16 @@ jobs:
           test "$(ls -1 /tmp/csfigs/vis_cs_*.png 2>/dev/null | wc -l)" -eq 7
           echo "7 cycle-slip figures written (the 1 Hz ones skipped, as expected)"
 
+      # The chapter-8 reader and its two figures. Unlike chapter 7 there is no
+      # committed dataset that can drive them: the RTK runs come from the
+      # OEM719 zero baseline, which is a download, not a checkout. So the test
+      # writes a synthetic run in the same format, plots it, and checks that
+      # both figures come out byte-for-byte identical twice over - which is
+      # what pins down the class of bug chapter 7 hit, where a `set` iterated
+      # before plotting reordered the artists and moved the PNG bytes.
+      - name: RTK accuracy reader and figures
+        run: python3 tests/test_rtk_plot.py
+
       - name: Upload figures
         if: always()
         uses: actions/upload-artifact@v4

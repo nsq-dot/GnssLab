@@ -14,6 +14,7 @@ Subcommands::
     gnss run       spp + plot
     gnss demo      run + plot on the bundled sample dataset, zero arguments
     gnss cs-plot   plot the chapter-7 cycle-slip detector output
+    gnss rtk-plot  plot the chapter-8 RTK float accuracy output
     gnss app       run one of the auxiliary C++ programs
     gnss ex        run one of the teaching examples
 
@@ -42,7 +43,15 @@ AUX_APPS = {
     "cs-detect-mw": "cs_detect_mw",
     "cs-detect-gf": "cs_detect_gf",
     "matrix": "matrix_calculator",
+    "rtk-float": "rtk_float",
 }
+
+# The constellations `apps/rtk_float.cpp` has a mode for, for `rtk-plot --sys`.
+# A copy of gnss_plot.rtk.MODES rather than an import: the parser is built for
+# every subcommand, and reaching into the analysis module here would pull numpy
+# in before `gnss build` - which needs neither - can run. Same reason the string
+# tables are the only other import at this level.
+_RTK_MODES = ("gps", "bds2", "bds3")
 
 TEACHING_EXAMPLES = [
     "parse_opt",
@@ -51,6 +60,11 @@ TEACHING_EXAMPLES = [
     "bdweek_to_commontime",
     "jd2020_test",
     "ecef_enu_test",
+    # Chapter 8. Both read a description of their input from stdin and fall back
+    # to a built-in example when given none, so `gnss ex sync_obs` works with no
+    # arguments and no dataset.
+    "sync_obs",
+    "diff_station",
 ]
 
 
@@ -710,6 +724,122 @@ def cmd_cs_plot(args) -> int:
     return 0
 
 
+def cmd_rtk_plot(args) -> int:
+    """Plot the chapter-8 RTK float accuracy output.
+
+    Reads existing ``apps/rtk_float`` output; it does not run the solver. One
+    run per constellation is chosen from the output tree, scored against the
+    base station's header coordinate, printed as a table, and drawn as two
+    figures.
+
+    Unlike ``cs-plot`` this fails when it finds nothing: the RTK runs are what
+    the command exists for, and there is no "half the experiment is not
+    committed" case to skip over - either the solver has been run or it has
+    not. Failures that *are* survivable (a missing diagnostic CSV, a base RINEX
+    that is not on this machine) degrade instead of aborting, and say so.
+    """
+    import numpy as np
+
+    from . import figures, rtk
+
+    root = _find.project_root()
+    lang = normalise_lang(args.lang)
+    figures.configure(lang=lang, backend="Agg")
+
+    if args.rtk_out:
+        # Explicit files win over the directory, so a run that was copied
+        # somewhere flat can still be plotted.
+        found = rtk.runs_from_outputs([
+            p if os.path.isabs(p) else os.path.join(root, p) for p in args.rtk_out])
+    else:
+        # Default to output/rtk, which is where apps/rtk_float.cpp writes; the
+        # search is recursive so a tree that keeps its full runs one level down
+        # (output/rtk/full) is found too.
+        rtk_dir = _resolve_out_dir(root, args.out_dir or os.path.join("output", "rtk"))
+        if not os.path.isdir(rtk_dir):
+            return _fail(f"no RTK output under {rtk_dir}\n"
+                         "  Run 'gnss app rtk-float' first - see docs/rtk.md.")
+        found = rtk.find_runs(rtk_dir)
+
+    if not found:
+        return _fail("no <rover>_<sys>_rtk_float.out files found"
+                     + ("" if args.rtk_out else f" under {rtk_dir}"))
+
+    runs = rtk.select_runs(found, rover=args.rover, modes=args.sys)
+    if not runs:
+        return _fail("no run matched --rover/--sys; found: "
+                     + ", ".join(sorted({"%s:%s" % (r["rover"], r["mode"])
+                                         for r in found})))
+
+    # The reference is the base station's header coordinate: the manifest names
+    # the base RINEX, but data/ is gitignored, so this is a best effort that
+    # falls back to the documented literal.
+    base_obs = args.base_obs
+    if not base_obs:
+        for r in runs:
+            manifest = _read_manifest(r["manifest"])
+            if manifest and manifest.get("baseObs"):
+                base_obs = manifest["baseObs"]
+                break
+    if args.ref_xyz:
+        try:
+            ref_xyz = np.asarray([float(v) for v in args.ref_xyz.split(",")],
+                                 dtype=float)
+            if ref_xyz.size != 3:
+                raise ValueError("expected three values")
+        except ValueError as e:
+            return _fail(f"--ref-xyz must be three comma-separated metres: {e}")
+        source = "--ref-xyz"
+    else:
+        ref_xyz, source = rtk.resolve_reference(base_obs, root, lang=lang)
+        if base_obs and source == rtk.DEFAULT_REF_SOURCE:
+            _warn(f"base RINEX {base_obs} is not readable here; falling back to "
+                  "the documented reference coordinate")
+
+    results = []
+    for run in runs:
+        result = rtk.load_run(run, ref_xyz)
+        if not result["stats"]["n"]:
+            _warn(f"skipping {run['out']}: no parseable epoch lines")
+            continue
+        results.append(result)
+
+    if not results:
+        return _fail("no epochs parsed from any RTK output file")
+
+    rover = runs[0]["rover"]
+    rtk.report(results, ref_xyz, source, rover=rover, lang=lang)
+
+    if args.no_figures:
+        return 0
+
+    png_dir = args.png_dir or os.path.join(root, "docs", "figures")
+    os.makedirs(png_dir, exist_ok=True)
+    n = results[0]["stats"]["n"]
+    figs = [
+        figures.fig_rtk_error_enu_ts(
+            [(r["label"], r["sod"]) + tuple(r["stats"]["rtk_enu"])
+             for r in results],
+            os.path.join(png_dir, "vis_rtk_error_enu_ts.png"),
+            rover=rover, lang=lang),
+        figures.fig_rtk_accuracy_bars(
+            [(r["label"], r["stats"]) for r in results],
+            os.path.join(png_dir, "vis_rtk_accuracy_bars.png"),
+            rover=rover, lang=lang),
+    ]
+    print()
+    print(t(lang, "saved_to", dir=png_dir))
+    for f in figs:
+        print("  -", f)
+    print("  " + t(lang, "annot_rtk_plotted", n=n))
+    return 0
+
+
+def _read_manifest(path: str):
+    from .io import read_manifest
+    return read_manifest(path) if os.path.isfile(path) else None
+
+
 def cmd_app(args) -> int:
     root = _find.project_root()
     target = AUX_APPS.get(args.name)
@@ -844,6 +974,32 @@ def build_parser() -> argparse.ArgumentParser:
     cs.add_argument("--lang", default="en", choices=list(LANGS),
                     help="figure language (default: en)")
     cs.set_defaults(func=cmd_cs_plot)
+
+    rk = sub.add_parser("rtk-plot", help="plot RTK float accuracy output (chapter 8)")
+    rk.add_argument("--out-dir", dest="out_dir",
+                    help="directory holding the RTK output, searched recursively "
+                         "(default: output/rtk)")
+    rk.add_argument("--rtk-out", dest="rtk_out", action="append", default=None,
+                    metavar="FILE",
+                    help="an explicit <rover>_<sys>_rtk_float.out, repeatable; "
+                         "replaces --out-dir and takes the diagnostic and "
+                         "manifest from its siblings")
+    rk.add_argument("--rover", help="rover basename (default: every rover found)")
+    rk.add_argument("--sys", action="append", default=None,
+                    choices=list(_RTK_MODES),
+                    help="constellation to plot, repeatable (default: all found)")
+    rk.add_argument("--base-obs", dest="base_obs",
+                    help="base station RINEX file; its APPROX POSITION XYZ is the "
+                         "reference (default: the manifest's baseObs, else the "
+                         "documented literal)")
+    rk.add_argument("--ref-xyz", dest="ref_xyz", metavar="X,Y,Z",
+                    help="reference ECEF position in metres, overriding --base-obs")
+    rk.add_argument("--png-dir", dest="png_dir",
+                    help="directory for the figures (default: docs/figures)")
+    rk.add_argument("--lang", default="en", choices=list(LANGS),
+                    help="figure and report language (default: en)")
+    rk.add_argument("--no-figures", action="store_true", help="table only")
+    rk.set_defaults(func=cmd_rtk_plot)
 
     a = sub.add_parser("app", help="run an auxiliary program")
     a.add_argument("name", help=" | ".join(sorted(AUX_APPS)))

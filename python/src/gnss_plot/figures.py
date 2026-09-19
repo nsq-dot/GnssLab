@@ -35,6 +35,8 @@ __all__ = [
     "fig_slip_series",
     "fig_state_composition",
     "fig_injection_outcomes",
+    "fig_rtk_error_enu_ts",
+    "fig_rtk_accuracy_bars",
 ]
 
 # Colour slots (blue / orange / aqua), plus ink, grid and zero-line greys.
@@ -792,4 +794,201 @@ def fig_nullspace(gf_view, mw_view, out_png, sat="", dn1=0, dn2=0, epoch=None,
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     _sod_axis(axes[-1], msod if msod.size else gsod)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
+    return _finish(fig, out_png)
+
+
+# ---------------------------------------------------------------------------
+# RTK float accuracy (chapter 8)
+# ---------------------------------------------------------------------------
+# `_stacked_ts` above is the same three-panel layout, but it takes one series
+# per panel and draws markers over every sample. Neither fits here: each panel
+# carries three constellations, and a run is 7934 epochs, so a marker per epoch
+# would be a smear rather than a scatter. This is a sibling rather than a
+# parameterisation of it, which is why `_stacked_ts` is left exactly as it was -
+# the chapter-1 figures it draws must not move.
+
+def _break_gaps(sod, y):
+    """Copy `y` with a NaN where the epochs are not contiguous.
+
+    The run has a single ~130-epoch hole in it (the receiver drops out around
+    sod 26200). A line drawn straight through it crosses the whole panel
+    diagonally and reads as a two-minute excursion of the solution, which is
+    the opposite of what happened. The threshold is five times the median
+    sampling interval, so the one- and two-epoch holes elsewhere - which are
+    real, and short enough to be spanned honestly - are left alone.
+    """
+    y = np.array(y, dtype=float, copy=True)
+    sod = np.asarray(sod, dtype=float)
+    if sod.size > 2:
+        step = float(np.median(np.diff(sod)))
+        if step > 0:
+            holes = np.nonzero(np.diff(sod) > 5.0 * step)[0]
+            y[holes] = np.nan
+    return y
+
+
+def fig_rtk_error_enu_ts(modes, out_png, rover="", lang="en"):
+    """Figure 8-1: RTK float ENU error over time, three constellations overlaid.
+
+    `modes` is a sequence of ``(label, sod, e, n, u)``, drawn in that order and
+    coloured from the shared categorical slots, so the colour a constellation
+    gets here is the colour it gets in the bar chart. Each series carries its
+    own time base: the three modes come from three separate runs, and while the
+    chapter's runs do share an epoch grid, nothing in the file format promises
+    it - a constellation that loses one satellite loses whole epochs with it,
+    and plotting a series against another run's `sod` would put the samples at
+    the wrong times without looking wrong.
+
+    **Every epoch is plotted and nothing is downsampled.** 7934 samples over an
+    eleven-inch axis at 150 dpi is roughly five epochs per pixel column, which
+    is why the series is drawn as a thin line with no markers: markers would
+    merge into a band and would claim a per-epoch resolution the axis cannot
+    show anyway. The epoch count is in the title, so the density is stated
+    rather than implied.
+
+    The x ticks come from `_sod_axis` rather than from zero: a zero-based tick
+    range would stretch the axis back over the six hours before the pass starts
+    and squash the data into its right-hand quarter.
+    """
+    # Two copies on purpose: the statistics are taken over every epoch
+    # including the ones a NaN break is inserted at, and only the drawn line
+    # carries the breaks. `component_stats` propagates NaN, so annotating from
+    # the plotted array would print three NaNs per panel.
+    raw = [(str(m[0]), np.asarray(m[1], dtype=float),
+            np.asarray(m[2], dtype=float), np.asarray(m[3], dtype=float),
+            np.asarray(m[4], dtype=float)) for m in modes]
+    series = [(label, sod, _break_gaps(sod, e), _break_gaps(sod, nu),
+               _break_gaps(sod, u)) for label, sod, e, nu, u in raw]
+    colors = (C_E, C_N, C_U)
+    ylabels = (t(lang, "axis_east_err"), t(lang, "axis_north_err"),
+               t(lang, "axis_up_err"))
+
+    n = max((int(sod.size) for _l, sod, *_rest in series), default=0)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 7.2), sharex=True)
+    fig.suptitle(t(lang, "title_rtk_ts", rover=rover or "-", n=n), fontsize=12)
+
+    for k, (ax, ylab) in enumerate(zip(axes, ylabels)):
+        notes = []
+        for (label, sod, e, nu, u), (rlabel, _rsod, re_, rn, ru), c in zip(
+                series, raw, colors):
+            d = (e, nu, u)[k]
+            bias, std, rms = component_stats((re_, rn, ru)[k])
+            ax.plot(sod, d, color=c, lw=0.7, alpha=0.9, zorder=2, label=rlabel)
+            notes.append(t(lang, "annot_stats_rtk", mode=rlabel, bias=bias,
+                           std=std, rms=rms))
+        ax.axhline(0, color=ZERO, lw=0.9, ls="--", zorder=1)
+        ax.set_ylabel(ylab, color=INK, fontsize=10)
+        ax.text(0.01, 0.97, "\n".join(notes), transform=ax.transAxes, va="top",
+                fontsize=8, color=INK)
+        if k == 0:
+            # The legend sits in the east panel, which is the one the
+            # constellations actually differ in; repeating it three times would
+            # cost a fifth of each panel to say the same thing.
+            ax.legend(fontsize=9, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    # The tick span is the union of the series' own time bases, not the first
+    # one's: a mode that starts late or ends early must not push the ticks off
+    # the data it does have.
+    _sod_axis(axes[-1], np.concatenate([s for _l, s, *_r in series])
+              if series else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    return _finish(fig, out_png)
+
+
+#: The seven quantities the accuracy bar chart draws, per constellation, in x
+#: order: ``(label key, accessor, signed?)``. The accessor takes the dict
+#: ``rtk.error_stats`` returns. Bias is signed and the rest are magnitudes,
+#: which is the distinction the chart's log axis makes explicit.
+_RTK_BAR_ITEMS = (
+    ("lbl_bar_bias_e", lambda s: s["rtk"]["bias"][0], True),
+    ("lbl_bar_bias_n", lambda s: s["rtk"]["bias"][1], True),
+    ("lbl_bar_bias_u", lambda s: s["rtk"]["bias"][2], True),
+    ("lbl_bar_sigma_e", lambda s: s["rtk"]["std"][0], False),
+    ("lbl_bar_sigma_n", lambda s: s["rtk"]["std"][1], False),
+    ("lbl_bar_sigma_u", lambda s: s["rtk"]["std"][2], False),
+    ("lbl_bar_rms3d", lambda s: s["rtk"]["rms_3d"], False),
+)
+
+
+def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
+    """Figure 8-2: the comparison table as a chart.
+
+    `series` is a sequence of ``(label, stats)`` where `stats` is what
+    ``rtk.error_stats`` returns. Seven quantities per constellation - the three
+    per-axis biases, the three per-axis sigmas, and the 3-D RMS - grouped by
+    constellation.
+
+    The y axis is **logarithmic and unsigned**, and that is a deliberate
+    compromise rather than a preference. On a linear axis the three biases
+    (millimetres to centimetres) would be invisible next to a 1.1 m 3-D RMS,
+    and the whole point of the figure is that the bias and the sigma are
+    different kinds of quantity that have to be read side by side. The cost is
+    that the bias sign cannot be shown by a bar, so it is printed above each
+    one and kept in the table; the axis label says so.
+
+    Values are printed on the bars, because a reader checking this figure
+    against the console table should not have to estimate from a pixel height.
+    """
+    series = list(series)
+    n_items = len(_RTK_BAR_ITEMS)
+    n_modes = max(len(series), 1)
+    x = np.arange(n_items, dtype=float)
+    # Same +-width/2 layout the chapter-7 bar figures use, derived from the
+    # series count rather than written out, so one constellation would centre
+    # on the tick instead of sitting half a slot to its left.
+    width = 0.8 / n_modes
+    colors = (C_E, C_N, C_U)
+    classes = (t(lang, "legend_bar_bias"), t(lang, "legend_bar_sigma"),
+               t(lang, "legend_bar_rms"))
+
+    fig, ax = plt.subplots(figsize=(11, 4.6))
+    fig.suptitle(t(lang, "title_rtk_bars", rover=rover or "-"), fontsize=12)
+
+    values = []
+    for i, (label, stats) in enumerate(series):
+        heights = []
+        for key, get, signed in _RTK_BAR_ITEMS:
+            v = float(np.asarray(get(stats), dtype=float).ravel()[0])
+            heights.append(v)
+        values.append(heights)
+        # abs() for the bar height, the signed value for the label. A zero
+        # would be -inf on a log axis and cannot occur in these quantities
+        # (a sigma of exactly zero is a degenerate run), so the floor is a
+        # guard rather than a correction.
+        heights = np.abs(np.asarray(heights, dtype=float))
+        heights = np.where(heights > 0.0, heights, 1e-9)
+        cls = [0 if s else (2 if k == n_items - 1 else 1)
+               for k, (_key, _get, s) in enumerate(_RTK_BAR_ITEMS)]
+        for j, c in enumerate(cls):
+            ax.bar(x[j] + (i - (n_modes - 1) / 2.0) * width, heights[j], width,
+                   color=colors[c % len(colors)])
+
+    for i, heights in enumerate(values):
+        for j, v in enumerate(heights):
+            key, _get, signed = _RTK_BAR_ITEMS[j]
+            ax.text(x[j] + (i - (n_modes - 1) / 2.0) * width,
+                    max(abs(v), 1e-9) * 1.08,
+                    t(lang, "annot_bar_signed" if signed else "annot_bar_plain",
+                      v=v),
+                    ha="center", va="bottom", rotation=90, fontsize=6.5,
+                    color=INK)
+
+    ax.set_yscale("log")
+    finite = [abs(v) for heights in values for v in heights if abs(v) > 0.0]
+    if finite:
+        ax.set_ylim(min(finite) / 3.0, max(finite) * 6.0)
+    ax.set_xticks(x)
+    ax.set_xticklabels([t(lang, k) for k, _g, _s in _RTK_BAR_ITEMS], fontsize=9)
+    ax.set_ylabel(t(lang, "axis_rtk_abs"), fontsize=10)
+    # Colour encodes the class, so the class legend is the one to draw; the
+    # constellation is already the x tick and needs no second legend. The first
+    # bar's own label is reused for its colour, which keeps the three patches
+    # in the order they appear along x.
+    handles = [Patch(facecolor=colors[i], edgecolor=INK, linewidth=0.4,
+                     label=classes[i]) for i in range(3)]
+    ax.legend(handles=handles, fontsize=9, loc="upper left", framealpha=0.9)
+    style_ax(ax)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
     return _finish(fig, out_png)

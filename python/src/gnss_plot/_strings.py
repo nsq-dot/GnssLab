@@ -120,6 +120,91 @@ STRINGS: dict[str, dict[str, str]] = {
 
         "annot_crosscheck": "{gf} GF flags, {mw} MW flags, {both} in common",
         "annot_nullspace": "a slip of {dn1} / {dn2} cycles is injected here",
+
+        # --- RTK figures (chapter 8) ---
+        "title_rtk_ts": "RTK float ENU error against the base header ({rover}, {n} epochs)",
+        "title_rtk_bars": "RTK float accuracy by constellation ({rover})",
+
+        # Three decimals, not the two the SPP figure uses: an RTK sigma is
+        # tens of millimetres, and two decimals would print it as 0.05 for both
+        # the good and the mediocre constellation.
+        "annot_stats_rtk": "{mode}: bias={bias:+.3f}  σ={std:.3f}  RMS={rms:.3f} m",
+        # The bar chart is logarithmic so that bias and sigma stay comparable
+        # across two orders of magnitude; the sign of a bias is carried by the
+        # bar label and the table instead, which is what this axis label says.
+        "axis_rtk_abs": "|value| [m] — log axis, bias is signed in the label",
+        "annot_bar_signed": "{v:+.4f}",
+        "annot_bar_plain": "{v:.4f}",
+
+        "legend_sys_gps": "GPS",
+        "legend_sys_bds2": "BDS-2",
+        "legend_sys_bds3": "BDS-3",
+
+        "annot_rtk_plotted": "({n} epochs per constellation, every epoch drawn "
+                             "- nothing is downsampled)",
+
+        "lbl_bar_bias_e": "bias E",
+        "lbl_bar_bias_n": "bias N",
+        "lbl_bar_bias_u": "bias U",
+        "lbl_bar_sigma_e": "σ E",
+        "lbl_bar_sigma_n": "σ N",
+        "lbl_bar_sigma_u": "σ U",
+        "lbl_bar_rms3d": "3-D RMS",
+
+        "legend_bar_bias": "bias — the datum offset, not accuracy",
+        "legend_bar_sigma": "sigma — the precision",
+        "legend_bar_rms": "3-D RMS about the reference",
+
+        # --- RTK console report (chapter 8) ---
+        "rpt_rtk_title": "RTK float accuracy against the base header position ({rover})",
+        "rpt_rtk_ref": "Reference = base header APPROX POSITION XYZ (ECEF): "
+                       "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
+        "rpt_rtk_epochs": "{n} epochs per constellation, {nmodes} constellations",
+
+        "rpt_rtk_head": "SPP/RTK 3-D RMS improvement: {ratio}   "
+                        "(the one reference-independent number here)",
+        "rpt_rtk_c_sys": "constellation",
+        "rpt_rtk_c_system": "system",
+        "rpt_rtk_c_epochs": "epochs",
+        "rpt_rtk_c_spp": "SPP 3D RMS",
+        "rpt_rtk_c_rtk": "RTK 3D RMS",
+        "rpt_rtk_c_ratio": "SPP/RTK",
+
+        "rpt_rtk_pct_head": "[3-D error magnitude |d|, percentiles]  "
+                            "the last column counts the epochs unlike the rest",
+        "rpt_rtk_c_p50": "p50",
+        "rpt_rtk_c_p68": "p68",
+        "rpt_rtk_c_p95": "p95",
+        "rpt_rtk_c_max": "max",
+        "rpt_rtk_c_outliers": "sigma0>10xmed",
+
+        "rpt_rtk_axis_head": "[Per-axis bias and sigma, metres]  "
+                             "bias and sigma are different quantities — see note 1.  "
+                             "The ECEF rows are the same quantities on the raw X/Y/Z "
+                             "axes, which is the frame the .out columns are in; either "
+                             "frame's three values square-sum to the 3-D RMS.",
+        "rpt_rtk_c_frame": "frame",
+        "rpt_rtk_c_quantity": "quantity",
+        "rpt_rtk_q_spp_bias": "SPP bias",
+        "rpt_rtk_q_spp_sigma": "SPP sigma",
+        "rpt_rtk_q_bias": "RTK bias",
+        "rpt_rtk_q_sigma": "RTK sigma",
+        "rpt_rtk_q_rms": "RTK RMS",
+        "rpt_rtk_q_rms3d": "RTK 3-D RMS",
+
+        "rpt_rtk_note_bias":
+            "Note 1 — the bias is a datum offset, not an accuracy figure. "
+            "SPPUCCodePhase::solve builds the base station's equations at its "
+            "RINEX header coordinate and returns without iterating, and the rover "
+            "is accepted as soon as |dxyz| < 0.1 m. Every epoch therefore "
+            "reproduces the base header position plus the rover's last, "
+            "unconverged correction — up to 0.1 m, and near-constant over the "
+            "run. Read sigma as the precision and the bias as that offset.",
+        "rpt_rtk_note_ratio":
+            "Note 2 — the SPP/RTK ratio is the one reference-independent number "
+            "in the table: both columns are differenced against the same base "
+            "header, so the header's own error (metre-to-decametre) cancels in "
+            "the ratio even though it does not cancel in either RMS.",
     },
     "zh": {
         "axis_sod": "秒内时刻 sod [s]",
@@ -217,6 +302,76 @@ STRINGS: dict[str, dict[str, str]] = {
 
         "annot_crosscheck": "GF 标记 {gf} 个，MW 标记 {mw} 个，重合 {both} 个",
         "annot_nullspace": "此历元注入 {dn1} / {dn2} 周",
+
+        # --- RTK 图（第 8 章）---
+        "title_rtk_ts": "RTK 浮点解 ENU 误差时序（相对基准站表头，{rover}，{n} 个历元）",
+        "title_rtk_bars": "各星座 RTK 浮点解精度（{rover}）",
+
+        "annot_stats_rtk": "{mode}: 偏差={bias:+.3f}  σ={std:.3f}  RMS={rms:.3f} m",
+        "axis_rtk_abs": "|数值| [m] —— 对数轴，偏差的正负见柱上标注",
+        "annot_bar_signed": "{v:+.4f}",
+        "annot_bar_plain": "{v:.4f}",
+
+        "legend_sys_gps": "GPS",
+        "legend_sys_bds2": "BDS-2",
+        "legend_sys_bds3": "BDS-3",
+
+        "annot_rtk_plotted": "（每个星座 {n} 个历元，全部绘出，未做任何抽稀）",
+
+        "lbl_bar_bias_e": "偏差 E",
+        "lbl_bar_bias_n": "偏差 N",
+        "lbl_bar_bias_u": "偏差 U",
+        "lbl_bar_sigma_e": "σ E",
+        "lbl_bar_sigma_n": "σ N",
+        "lbl_bar_sigma_u": "σ U",
+        "lbl_bar_rms3d": "三维 RMS",
+
+        "legend_bar_bias": "偏差 —— 基准偏移，不是精度",
+        "legend_bar_sigma": "σ —— 内符合精度",
+        "legend_bar_rms": "相对参考的外符合三维 RMS",
+
+        # --- RTK 控制台报告（第 8 章）---
+        "rpt_rtk_title": "RTK 浮点解精度评估（相对基准站表头坐标，{rover}）",
+        "rpt_rtk_ref": "参考坐标 = 基准站表头 APPROX POSITION XYZ (ECEF): "
+                       "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
+        "rpt_rtk_epochs": "每个星座 {n} 个历元，共 {nmodes} 个星座",
+
+        "rpt_rtk_head": "SPP/RTK 三维 RMS 改善比: {ratio}   （本表中唯一与参考坐标无关的数）",
+        "rpt_rtk_c_sys": "星座",
+        "rpt_rtk_c_system": "信号组合",
+        "rpt_rtk_c_epochs": "历元数",
+        "rpt_rtk_c_spp": "SPP 三维RMS",
+        "rpt_rtk_c_rtk": "RTK 三维RMS",
+        "rpt_rtk_c_ratio": "改善比",
+
+        "rpt_rtk_pct_head": "【三维误差模 |d| 的分位数】最后一列是与众不同的历元个数",
+        "rpt_rtk_c_p50": "p50",
+        "rpt_rtk_c_p68": "p68",
+        "rpt_rtk_c_p95": "p95",
+        "rpt_rtk_c_max": "最大值",
+        "rpt_rtk_c_outliers": "σ₀>10×中位数",
+
+        "rpt_rtk_axis_head": "【各分量偏差与内符合σ，单位 m】偏差与σ是两种量，见说明 1；"
+                             "标 ECEF 的行是同样两个量在原始 X/Y/Z 轴上的值（即 .out "
+                             "文件各列的坐标系），两种坐标系三者的平方和都等于三维 RMS",
+        "rpt_rtk_c_frame": "坐标系",
+        "rpt_rtk_c_quantity": "统计量",
+        "rpt_rtk_q_spp_bias": "SPP 偏差",
+        "rpt_rtk_q_spp_sigma": "SPP σ",
+        "rpt_rtk_q_bias": "RTK 偏差",
+        "rpt_rtk_q_sigma": "RTK σ",
+        "rpt_rtk_q_rms": "RTK RMS",
+        "rpt_rtk_q_rms3d": "RTK 三维 RMS",
+
+        "rpt_rtk_note_bias":
+            "说明 1 —— 偏差不是精度指标，而是基准偏移。SPPUCCodePhase::solve 用基准站 "
+            "RINEX 表头坐标建立基准站方程后直接返回（不再迭代），流动站则迭代到 "
+            "|dxyz| < 0.1 m 即判收敛。因此每个历元的结果 = 基准站表头坐标 + 流动站最后一次"
+            "未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是精度，偏差应理解为这一偏移量。",
+        "rpt_rtk_note_ratio":
+            "说明 2 —— SPP/RTK 改善比是本表中唯一与参考坐标无关的数：两列都对同一个基准站"
+            "表头作差，表头自身的误差（米级至十米级）在比值中被约掉，而在各自的 RMS 中"
+            "并不能被约掉。",
     },
 }
 

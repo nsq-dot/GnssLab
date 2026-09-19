@@ -29,6 +29,7 @@ void RinexObsReader::parseRinexHeader() {
     double version;
     XYZ antennaPosition;
     string satSys;
+    int sysObsCount = 0;
     std::map<string, std::vector<string>> mapObsTypes;
 
     while (true) {
@@ -63,19 +64,30 @@ void RinexObsReader::parseRinexHeader() {
             rinexHeader.antennaPosition = antennaPosition;
         }
         else if (label == "SYS / # / OBS TYPES") {
-            string sysStr = line.substr(0, 1);
-            strip(sysStr);
-
-            int numObs = 0;
+            // strip() takes its argument BY VALUE and returns a new string, so
+            // `strip(sysStr);` throws the result away. That mattered here: a
+            // continuation line - the one carrying observation types 14 and
+            // beyond - starts with a blank system character, so the discarded
+            // return made the code read it as a fresh system block. satSys
+            // became " ", the count was taken from the wrong columns, and every
+            // type past the 13th was silently dropped for every constellation.
+            // BDS declares 20 types in the zero-baseline files, so B2a (C5P)
+            // was unreachable, which in turn ruled out every BDS-3 frequency
+            // pair.
+            string sysStr = strip(line.substr(0, 1));
 
             if (!sysStr.empty()) {
-                numObs = safeStoi(line.substr(3, 3));
+                // First line of a system block declares the total.
+                sysObsCount = safeStoi(line.substr(3, 3));
                 satSys = sysStr;
             }
 
+            // Up to 13 three-character codes per line from column 7; a block
+            // continues on following lines until the declared total is reached.
             const int maxObsPerLine = 13;
-            for (int i = 0; i < maxObsPerLine && mapObsTypes[satSys].size() < numObs; i++) {
-                std::string typeStr = line.substr(4 * i + 7, 3);
+            for (int i = 0; i < maxObsPerLine && (int) mapObsTypes[satSys].size() < sysObsCount; i++) {
+                std::string typeStr = strip(line.substr(4 * i + 7, 3));
+                if (typeStr.empty()) break;
                 mapObsTypes[satSys].push_back(typeStr);
             }
             rinexHeader.mapObsTypes = mapObsTypes;
@@ -189,7 +201,16 @@ ObsData RinexObsReader::parseRinexObs() {
 
                 string obsType = rinexHeader.mapObsTypes.at(sat.system)[i];
 
-                // Convert phase from cycles to meters
+                // Carrier phase: RINEX stores cycles, the observation model wants
+                // metres, so scale by the wavelength. Verified against this
+                // dataset - L1C * lambda1 reproduces C1C to within the ambiguity
+                // (22 206 887 m vs 22 206 874 m), so the sign is positive.
+                //
+                // This used to read `data = -data / lambda` into dopplerMap: the
+                // sign was inverted, dividing by the wavelength is dimensionally
+                // wrong (cycles/metre), and routing phase into the Doppler map
+                // meant it never reached satTypeValueData at all - the phase was
+                // simply invisible to every consumer of the observation data.
                 if (obsType[0] == 'L') {
                     int band = 0;
                     if (obsType[1] == 'A') band = 1;
@@ -198,9 +219,9 @@ ObsData RinexObsReader::parseRinexObs() {
                     double lambda = getWavelength(sat.system, band);
                     if (lambda <= 0) continue;
 
-                    data = -data / lambda;
+                    data = data * lambda;
                     if (fabs(data) < 1e-4) continue;
-                    dopplerMap[obsType] = data;
+                    rangeMap[obsType] = data;
                 }
                 // 2. D开头：多普勒观测（核心新增分支！）
                 else if (obsType[0] == 'D')
@@ -220,8 +241,7 @@ ObsData RinexObsReader::parseRinexObs() {
             if (!rangeMap.empty()) {
                 stvData[sat] = rangeMap;
             }
-            cout << endl;
-           if (!dopplerMap.empty()) {
+            if (!dopplerMap.empty()) {
                 obsDopplerTemp[sat] = dopplerMap;
             }
         }

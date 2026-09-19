@@ -35,6 +35,7 @@ the command line is not searched for.
 | `cs.ini` | Cycle-slip detection (`cs_detect_mw`, `cs_detect_gf`). Its keys are documented inline in that file. |
 | `bias.ini` | Systematic-bias and RINEX-inventory diagnostics (`system_bias`, `read_rinex`). |
 | `eph.ini` | Broadcast-versus-precise ephemeris comparison (`bds_eph`, `bds_gps_diff`). |
+| `rtk.ini` | RTK single-epoch float solution (`rtk_float`). The only profile that takes **two** observation files, and the only one whose `sys` key decides which satellites exist at all — read the comment above `sys` before changing it. |
 
 > **Do not change `cutOffElevation` in `spp.ini` to 15**, and do not add a
 > `noiseGPSCode` override there. `SPPIFCode`'s constructor defaults to a 10°

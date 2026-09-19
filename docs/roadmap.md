@@ -4,12 +4,21 @@
 
 Stated plainly, because a reader should not have to infer it from the source:
 
-- **No RTK.** No carrier-phase relative positioning. The chapter-8 material
-  (`ARLambda`, `SolverKalman`, `KalmanFilter`) is present and compiles, but no
-  program wires it up.
-- **No PPP.** `src/SPPUCCodePhase.*` was removed as unused.
+- **RTK float solution only.** `apps/rtk_float` does carrier-phase relative
+  positioning, but a single-epoch, least-squares, FLOAT one: nothing is fixed to
+  an integer and nothing is carried across epochs. In that formulation each phase
+  equation has its own free ambiguity, which absorbs the phase residual exactly,
+  so **the carrier phase contributes no information about position at all** and
+  the accuracy is that of the pseudorange double differences. That is a property
+  of the model, not a gap in the implementation - removing every phase equation
+  leaves the output bit-identical. See [rtk.md](rtk.md) §3.
+- **No ambiguity fixing.** `ARLambda` and `fixSolution` exist and compile but are
+  not called: `ARLambda::resolve` has **no return statement** on its
+  search-failure path (`src/ARLambda.cpp:26-45`), so it is undefined behaviour
+  exactly in the case that matters most - bad data. Fix that before wiring it up.
 - **No Kalman filter.** `estimator = 2` parses but is ignored; the solver always
-  uses least squares.
+  uses least squares. `src/SPPUCCodePhase.*` is live again (it was removed once
+  as unused, and returns as the RTK linearizer).
 - **No Galileo or GLONASS.** No observation types are selected for either, so
   the `Galileo` / `GLONASS` config keys are inert.
 - **No cycle-slip repair.** `apps/cs_detect_mw` and `apps/cs_detect_gf`

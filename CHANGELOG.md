@@ -7,6 +7,49 @@ Notable changes to this project. The format follows
 
 ### Added
 
+- **`apps/rtk_float` — chapter 8's RTK single-epoch least-squares float solution.**
+  Both receivers are linearized at their own approximate position by
+  `SPPUCCodePhase`, differenced between stations and then between satellites, and
+  solved per epoch by `SolverLSQ`. Nothing is fixed to an integer and nothing is
+  carried across epochs, which is what "float, single epoch" means — and, as
+  [rtk.md](docs/rtk.md) §3 shows, it means the carrier phase contributes *no*
+  information about position: each phase equation carries its own free ambiguity,
+  so the ambiguities can absorb any position exactly, and removing every phase
+  equation leaves the output bit-identical. Accuracy is therefore that of the
+  pseudorange double differences, which is the honest answer to exercise 1 and
+  the reason the textbook goes on to Kalman filtering and LAMBDA.
+  Three constellation/frequency modes (`--sys gps|bds2|bds3`), a config file, a
+  `--dump-epoch` for inspecting one epoch's system, a per-epoch diagnostics CSV,
+  and a manifest that counts skipped epochs by reason.
+- **`docs/rtk.md`**, carrying exercise 1: the two readers bugs it uncovered, the
+  proof that the float phase carries no position information, the measured
+  GPS / BDS-2 / BDS-3 comparison over 7934 epochs, and why the two BeiDou
+  generations cannot share a frequency pair.
+- **`config/rtk.ini` and `RTKConfigData`**, the only profile that takes two
+  observation files and the only one whose `sys` key changes which satellites
+  exist at all.
+- **`examples/sync_obs` and `examples/diff_station`**, written from two files that
+  were copyright headers and nothing else — no code, no `main()`.
+  `sync_obs` drives the epoch-alignment rule (factored out as `src/EpochAlign.h`)
+  through a match, a skipped epoch and an exhausted stream. `diff_station` drives
+  `differenceStation` / `differenceSat` on hand-built equation systems and prints
+  what they actually do — that `Parameter::iono` is deleted rather than
+  differenced, that the receiver clock cancels, that the ambiguity coefficient is
+  carried through unchanged while the unknown it multiplies is a difference, and
+  that rank deficiency yields a plausible wrong answer rather than an error.
+- **`tests/test_rtk_equations.py`**, which runs on a bare checkout: the difference
+  stage is pure linear algebra, so it is driven from hand-built fixtures through
+  `examples/diff_station`. And **`tests/test_rtk_float_regression.py`**, which
+  needs the gitignored zero-baseline set and asserts the `rtk:` column
+  byte-identical to the output of the original gnssLab-2.2 program.
+- `SolverLSQ::getState()`, `getCovMatrix()` and `getUnkSet()`. Only `dxyz` was
+  reachable before, which is enough for a position but not for anything that needs
+  the ambiguity block — LAMBDA's input is the float solution's covariance, and the
+  post-fit residual needs the whole state.
+- **`GNSSLAB_DEBUG_SPP`, `GNSSLAB_DEBUG_SOLVER` and `GNSSLAB_DEBUG_RTK`**, matching
+  the existing `GNSSLAB_DEBUG_PARSER` / `GNSSLAB_DEBUG_CSMW` pattern, replacing
+  three hard-coded `#define debug 1`. All default to 0. Only stdout is affected.
+
 - **Figure 7-11, the mirror of the null-space figure, and an MW row in figure 7-4.**
   The chapter's central claim — that the two combinations have *complementary*
   blind spots — was carried by one figure showing only the half where GF is
@@ -150,6 +193,42 @@ Notable changes to this project. The format follows
   `detectCSGFdiff()`, `detectCSGFpoly()` and `detectCSMW()`.
 
 ### Fixed
+
+- **`RinexObsReader` never delivered carrier phase to anything.** The `L*` branch
+  scaled the observation with `data = -data / lambda` and stored it in
+  `dopplerMap`. Three things were wrong at once: RINEX phase is in cycles and has
+  to be multiplied by the wavelength, not divided (the result was in cycles per
+  metre); the sign was inverted; and `satTypeValueData` is assembled from
+  `rangeMap`, so phase never reached the observation data at all. Verified against
+  the zero-baseline set — `L1C = 116 697 983.8241` cycles times `lambda1 =
+  0.190293673 m` is `22 206 887 m`, against a `C1C` of `22 206 873.798 m`, so the
+  correct form is `data * lambda` with a positive sign. Invisible until chapter 8
+  for three separate reasons: `spp_if` builds its ionosphere-free combination from
+  an explicitly named code pair and ignores everything else, the velocity solution
+  matches Doppler by the `"D1"`/`"D2"` prefix, and the chapter-7 detectors go
+  through the free-function reader in `src/GnssFunc.cpp` rather than this class.
+- **A `SYS / # / OBS TYPES` continuation line was read as a new system block, so
+  every observation type past the 13th was dropped for every constellation.**
+  `strip()` takes its argument by value and returns a new string, and the call
+  here discarded the return, so `sysStr` stayed `" "` — non-empty — on a
+  continuation line. The code then took the system name and the type count from
+  the wrong columns. BDS declares 20 types in the zero-baseline files, so seven
+  were lost, among them `C5P`/`L5P` (B2a) — which is what makes the BDS-3
+  frequency pair unusable. Both this and the phase bug leave `spp_if`'s two frozen
+  baselines byte-identical, which is exactly what the analysis above predicted.
+- **`SolverLSQ::getSolution` dereferenced `end()` when the parameter was
+  absent**, because the end-of-range test sat inside the loop after the
+  dereference; an epoch whose double differences were all dropped produces an
+  empty unknown set, which is precisely that case — and it is reached from the
+  `catch(...) { continue; }` in `differenceSat`, so it was silent. `getIndex` had
+  a matching hole: it returned `varSet.size()` when the variable was not found,
+  and the caller used that as a column index, writing one column past the end of
+  `hMatrix`. Both now throw. Behaviour is unchanged for every valid input, so the
+  frozen baselines are unaffected.
+- **A stray `cout << endl;` in `RinexObsReader`'s per-satellite loop**, and two
+  unguarded `cout`s in `GnssFunc.cpp` (`differenceSat` and the 6-argument
+  `differenceStation`). All three were debris from earlier debug printing and
+  could not be switched off.
 
 - **Figure 7-8's lower panel plotted a quantity that is identically zero where it
   matters, and drew none of its markers.** `apps/cs_detect_mw.cpp` writes

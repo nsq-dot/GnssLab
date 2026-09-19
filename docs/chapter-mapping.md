@@ -30,11 +30,11 @@ project report even though the filename no longer carries the chapter number.
 | 6.1 | `exam-6.1-sppif.cpp` | `apps/spp_if.cpp` | **extended** with `src/SPPVelocity.*` (Doppler velocity), a configuration file, and a command line |
 | 7.1 | `exam-7.1-cs_detect_mw.cpp` | `apps/cs_detect_mw.cpp` | **fixed and made configurable** — it could not run at all: the data directory string was missing its trailing separator, and three bugs in the free-function RINEX reader (`src/GnssFunc.cpp`) kept the header from ever finishing. Also corrected the BeiDou observation types, which selected band 6 instead of B1I/B2I |
 | 7.3 | — | `apps/cs_detect_gf.cpp` | **written here** — geometry-free combination, two detectors (epoch difference and polynomial fit), with `detectCSGFdiff` / `detectCSGFpoly` in `src/GnssFunc.cpp`. Exercises 1–3 are worked in [cycle-slip-gf.md](cycle-slip-gf.md) |
-| 8.1 | `exam-8.1-sync_obs.cpp` | — | removed (RTK chapter, not part of this work) |
-| 8.2 | `exam-8.2-diff_station.cpp` | — | removed (RTK) |
-| 8.3 | `exam-8.3-lambda.cpp` | — | removed (RTK); `src/ARLambda.cpp` is retained and still compiles |
-| 8.4 | `exam-8.4-rtk_lsq.cpp` | — | removed (RTK) |
-| 8.5 | `exam-8.5-rtk_kal.cpp` | — | removed (RTK) |
+| 8.1 | `exam-8.1-sync_obs.cpp` | `examples/sync_obs.cpp` | **written here** — the original was a copyright header and nothing else, no code at all. Demonstrates the epoch-alignment rule (now `src/EpochAlign.h`) that pairs a rover epoch with a base epoch, including the case where the base has already passed it and `SyncException` is thrown |
+| 8.2 | `exam-8.2-diff_station.cpp` | `examples/diff_station.cpp` | **written here** — also an empty stub. Drives `differenceStation` / `differenceSat` on hand-built equation systems and prints what they actually do: `Parameter::iono` is deleted rather than differenced, the receiver clock cancels, the ambiguity coefficient is carried through unchanged, and rank deficiency yields a plausible wrong answer rather than an error |
+| 8.3 | `exam-8.3-lambda.cpp` | — | not built. `src/ARLambda.cpp` compiles, but `ARLambda::resolve` falls off the end of a non-void function on its search-failure path — see [roadmap.md](roadmap.md) |
+| 8.4 | `exam-8.4-rtk_lsq.cpp` | `apps/rtk_float.cpp` | **made into a program** — single-epoch least-squares FLOAT solution, three constellation/frequency modes (`--sys gps\|bds2\|bds3`), a config file, a per-epoch diagnostics CSV and a manifest. Exercise 1 is worked in [rtk.md](rtk.md) |
+| 8.5 | `exam-8.5-rtk_kal.cpp` | — | next batch: Kalman filtering, cycle-slip wiring and LAMBDA fixing, which is what makes the carrier phase pay off — see §3 of [rtk.md](rtk.md) |
 
 ## Where the work for this project sits
 

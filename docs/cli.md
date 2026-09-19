@@ -7,6 +7,7 @@ gnss plot      analyse and plot existing solver output
 gnss run       spp + plot
 gnss demo      run end to end on the bundled sample, no arguments
 gnss cs-plot   plot cycle-slip detector output (chapter 7)
+gnss rtk-plot  plot RTK float accuracy output (chapter 8)
 gnss app       run an auxiliary program
 gnss ex        run a teaching example
 ```
@@ -150,14 +151,70 @@ PYTHONPATH=python/src python -m gnss_plot.cli cs-plot --lang zh --series sample-
 
 `--threshold` defaults to the value recorded in the run's own `summary` metadata.
 
+## rtk-plot
+
+```
+gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--rover NAME]
+              [--sys gps|bds2|bds3 ...] [--base-obs FILE] [--ref-xyz X,Y,Z]
+              [--png-dir DIR] [--no-figures] [--lang en|zh]
+```
+
+Plots the chapter-8 RTK float solution: the ENU error time series with the three
+constellations overlaid, and the accuracy comparison as a grouped bar chart. It
+prints the numeric comparison table as well — SPP and RTK 3-D RMS, the SPP/RTK
+ratio in the banner line, the percentiles of the 3-D error with a count of the
+epochs whose post-fit `sigma0` is more than ten times the run's median, and the
+per-axis bias and sigma, both in ENU and on the raw ECEF axes.
+
+The ECEF rows are there because a per-axis reading of the `.out` file lands in
+that frame, and because the two frames' three values square-sum to the same
+total (the trace of a covariance is rotation-invariant) — so the ENU and ECEF
+rows are the same two numbers split differently, not two measurements.
+
+Reads existing `apps/rtk_float` output — it does not run the solver; use
+`gnss app rtk-float` for that. See [rtk.md](rtk.md) for the analysis.
+
+```bash
+# what produced docs/figures/vis_rtk_*.png
+gnss rtk-plot --out-dir output/rtk/full --lang zh
+```
+
+`--out-dir` defaults to `output/rtk` and is searched **recursively**, because
+the C++ writes its smoke run at the top level and the full runs one level below
+(`output/rtk/full`). When a constellation appears more than once the longer run
+wins, so the smoke run cannot silently replace the full one. `--rtk-out` names
+the files outright instead, for a run that has been copied somewhere flat; the
+diagnostic CSV and the manifest are taken from its siblings.
+
+`--rover` and `--sys` filter what is drawn (both default to everything found);
+`--sys` may be repeated. The figures go to `docs/figures/` unless `--png-dir`
+says otherwise.
+
+**The reference position is the base station's RINEX header**, read from the
+manifest's `baseObs` when that file is on this machine and from the documented
+literal `(-2267812.4743, 5009352.1093, 3221012.1444)` when it is not — `data/`
+is gitignored, so the figures must not depend on it. `--base-obs` names the file
+explicitly and `--ref-xyz X,Y,Z` overrides both. An ECEF X is negative, so pass
+`--ref-xyz=-2267812.4743,5009352.1093,3221012.1444` with an `=` or argparse
+reads the value as an option.
+
+Unlike `cs-plot`, this command fails when it finds nothing to plot: there is no
+half-committed experiment to skip over, only "the solver has been run" or "it
+has not".
+
 ## app
 
 ```
-gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | cs-detect-gf | matrix
+gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | cs-detect-gf | matrix | rtk-float
 ```
 
 Runs the corresponding binary from `build/bin/` with the working directory set
-to the project root, so its relative paths resolve correctly.
+to the project root, so its relative paths resolve correctly. Options are passed
+through verbatim after the program name:
+
+```bash
+gnss app rtk-float config/rtk.ini --sys bds3
+```
 
 All of these except `matrix` take `[config.ini] [options]` rather than running
 bare, because they read their input paths from a config file:

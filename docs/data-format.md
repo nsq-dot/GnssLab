@@ -96,6 +96,50 @@ the *full* observation filename, so `....rnx` becomes `....rnx_DUAL_IF.spp.out`.
 It reads oddly but is stable, and the manifest is the reliable way to find the
 files.
 
+## `<obsFileName>_<sys>_rtk_float.out` — RTK float solution
+
+Written by `apps/rtk_float.cpp`, one line per epoch, in the format the textbook
+uses:
+
+```
+2022  62          24517 GPS spp: -2267801.763  5009344.797  3220990.845 rtk: -2267812.520  5009352.076  3221012.151
+```
+
+| Columns | Contents |
+|---|---|
+| 0–3 | `YDSTime`: year, day of year, second of day, time system |
+| 4–7 | literal `spp:`, then the rover's single-point ECEF position |
+| 8–11 | literal `rtk:`, then the float solution's ECEF position |
+
+Positions are at 3 decimals. `<sys>` is `gps`, `bds2` or `bds3` — see
+[rtk.md](rtk.md) for why BeiDou needs two of them and neither covers the other.
+
+The `spp:` column is **not** byte-reproducible across builds. The rover's
+single-point solve carries one free ambiguity per phase equation, so its normal
+matrix is singular in those directions and `inverse()` amplifies rounding noise;
+the same build is self-consistent to the last digit, different builds differ by
+metres. The `rtk:` column *is* stable, because the double-difference solve
+re-references the position. `tests/test_rtk_float_regression.py` asserts the
+strict column and tolerates the loose one, and explains both.
+
+## `<obsFileName>_<sys>_rtk_diag.csv` — per-epoch diagnostics
+
+```
+sod,nRoverEq,nSD,nDD,nUnk,rank,cond,datumSat,datumFallback,nSDsats,absDxyz,sigma0,postfitRms
+```
+
+`rank` and `cond` are of the double-difference design matrix (`FullPivLU` and
+`JacobiSVD`); `sigma0 = sqrt(Σ wᵢvᵢ² / (nObs − nUnk))` with `v = H·x − prefit` is
+the post-fit residual. Nothing in the library checks the fit, so without these a
+bad epoch is indistinguishable from a good one in the `.out` file. On the
+zero-baseline set the two known outliers have `sigma0` 20–30× the median; see
+[rtk.md](rtk.md) §6.
+
+`datumFallback` is 1 when the reference satellite had to be taken from the
+between-station system rather than from the rover's own highest-elevation
+satellite (see `pickDatumSat` in `apps/rtk_float.cpp`). It is 0 on every epoch of
+the shipped dataset.
+
 ## Naming
 
 All paths are relative to the project root, except when overridden on the

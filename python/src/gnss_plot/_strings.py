@@ -136,6 +136,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_bar_signed": "{v:+.4f}",
         "annot_bar_plain": "{v:.4f}",
 
+        # --- the SPP/RTK comparison figure (8-1) ---
+        # SPP and RTK are two *methods*, so they get their own two legend
+        # entries rather than reusing an axis or a constellation slot: in this
+        # chapter blue/orange/aqua already mean E/N/U in one figure and the
+        # three constellations in another.
+        "title_rtk_spp": "SPP vs RTK 3-D error, one panel per constellation "
+                         "({rover}, {n} epochs each)",
+        # "one window for all panels" is the load-bearing half of this label:
+        # the panels share a y range so that BDS-2's 1.13 m and BDS-3's 0.076 m
+        # do not look alike, which is section four's whole conclusion.
+        "axis_rtk_mag": "3-D error |d| [m] — log axis, one window for all panels",
+        "legend_spp": "SPP",
+        "legend_rtk": "RTK float",
+        "annot_rtk_vs_rms": "{method}: 3-D RMS {rms:.3f} m",
+        # {ratio} arrives already formatted ("330×", or "-" when the run
+        # collapsed onto the reference); the fallback is the console table's.
+        "annot_rtk_vs_gain": "SPP/RTK 3-D RMS improvement: {ratio}",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -311,6 +329,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "axis_rtk_abs": "|数值| [m] —— 对数轴，偏差的正负见柱上标注",
         "annot_bar_signed": "{v:+.4f}",
         "annot_bar_plain": "{v:.4f}",
+
+        # --- SPP 与 RTK 对比图（图 8-1）---
+        "title_rtk_spp": "SPP 与 RTK 三维误差时序，每个星座一个面板"
+                         "（{rover}，各 {n} 个历元）",
+        "axis_rtk_mag": "三维误差 |d| [m] —— 对数轴，三个面板共用同一窗口",
+        "legend_spp": "SPP",
+        "legend_rtk": "RTK 浮点解",
+        "annot_rtk_vs_rms": "{method}: 三维 RMS {rms:.3f} m",
+        "annot_rtk_vs_gain": "SPP/RTK 三维 RMS 提升倍数: {ratio}",
 
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",

@@ -159,7 +159,8 @@ gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--rover NAME]
               [--png-dir DIR] [--no-figures] [--lang en|zh]
 ```
 
-Plots the chapter-8 RTK float solution: the ENU error time series with the three
+Plots the chapter-8 RTK float solution: SPP against RTK as a 3-D error time
+series with one panel per constellation, the ENU error time series with the three
 constellations overlaid, and the accuracy comparison as a grouped bar chart. It
 prints the numeric comparison table as well — SPP and RTK 3-D RMS, the SPP/RTK
 ratio in the banner line, the percentiles of the 3-D error with a count of the

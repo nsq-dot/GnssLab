@@ -123,6 +123,16 @@ Notable changes to this project. The format follows
   **Figures 7-1 to 7-10 replace the old 7-1 to 7-9 numbering**: this figure
   belongs to §一, so every later figure moved up by one, and the references in
   `figures.py`, `cli.py` and this file moved with them.
+- **Figure 8-1: SPP against RTK on one logarithmic axis**, one panel per
+  constellation, with both 3-D RMS values and the improvement ratio printed
+  inside each panel. The axis is logarithmic because the two curves are 30× to
+  330× apart — on a linear axis the RTK band collapses onto zero, which is
+  exactly what the figure exists to show. Unlike the other two chapter-8
+  figures this one plots two *solutions* rather than three constellations, so
+  SPP and RTK take their own two colours instead of the categorical slots; the
+  three panels share a y window so that BDS-2's 1.128 m stays visibly worse
+  than BDS-3's 0.076 m. All three chapter-8 figures are now embedded in
+  [rtk.md](docs/rtk.md), which previously named them without displaying any.
 
 ### Changed
 
@@ -194,6 +204,13 @@ Notable changes to this project. The format follows
 
 ### Fixed
 
+- **`docs/rtk.md` §四 reported the BDS-3 SPP/RTK ratio as 331×; it is 330×.**
+  The ratio is 330.4893, and the console banner prints it to one decimal
+  (`330.5x`) — the table had rounded that a second time. Recomputed from the
+  three full runs with `rtk.error_stats`: 120.82 / 29.61 / 330.49 for
+  GPS / BDS-2 / BDS-3, so the other two entries (121×, 30×) were already right.
+  It surfaced because figure 8-1 prints the number from the same
+  `stats["ratio"]` the table is built from.
 - **`RinexObsReader` never delivered carrier phase to anything.** The `L*` branch
   scaled the observation with `data = -data / lambda` and stored it in
   `dopplerMap`. Three things were wrong at once: RINEX phase is in cycles and has

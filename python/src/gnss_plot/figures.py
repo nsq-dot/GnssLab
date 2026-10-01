@@ -26,7 +26,7 @@ from .stats import component_stats
 
 __all__ = [
     "configure",
-    "C_E", "C_N", "C_U", "C_SLIP", "INK", "GRIDC", "ZERO",
+    "C_E", "C_N", "C_U", "C_SLIP", "C_SPP", "C_RTK", "INK", "GRIDC", "ZERO",
     "fig_pos_error_enu_ts",
     "fig_pos_horizontal",
     "fig_velocity_enu_ts",
@@ -35,6 +35,7 @@ __all__ = [
     "fig_slip_series",
     "fig_state_composition",
     "fig_injection_outcomes",
+    "fig_rtk_spp_vs_rtk_ts",
     "fig_rtk_error_enu_ts",
     "fig_rtk_accuracy_bars",
 ]
@@ -50,6 +51,22 @@ INK, GRIDC, ZERO = "#1a1a1a", "#c9c9c9", "#888888"
 # polynomial detector" in the very panel below the one this colours, and a
 # detection marker is not a series.
 C_SLIP = "#d62728"
+
+# SPP and RTK are two *methods*, not two axes and not two constellations, so
+# neither takes one of the three categorical slots. Grey is the coarse solution
+# the eye should discount; the red is the one under discussion. Deliberately a
+# separate name from C_SLIP despite the identical value: retuning the cycle-slip
+# red must not move a byte in chapter 8's figures.
+C_SPP, C_RTK = "#6e6e6e", "#d62728"
+
+# Shared y window for the SPP/RTK comparison, in metres. Fixed, and shared by
+# all three panels, because the figure's one job is the *distance* between the
+# two bands: a window refitted per constellation would make BDS-2's 1.13 m and
+# BDS-3's 0.076 m look alike, which is the opposite of what section four
+# concludes. 5e-4 m is below the smallest epoch measured (0.86 mm, BDS-3), so
+# nothing is clipped; 200 m clears the worst (128 m, BDS-2's SPP). A derived
+# window would also move whenever one epoch moved.
+_RTK_CMP_YMIN, _RTK_CMP_YMAX = 5e-4, 200.0
 
 # Fonts that carry CJK glyphs, best first. SimHei ships with Windows, the
 # Noto/WenQuanYi families with most Linux distributions, so probing beats
@@ -827,8 +844,83 @@ def _break_gaps(sod, y):
     return y
 
 
+def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
+    """Figure 8-1: SPP and RTK 3-D error on one log axis, one panel per constellation.
+
+    `modes` is a sequence of ``(label, sod, stats)``, where `stats` is what
+    ``rtk.error_stats`` returns - the same dict :func:`fig_rtk_accuracy_bars`
+    takes, so the numbers printed inside these panels and the numbers in the
+    console table and in docs/rtk.md come from one computation rather than
+    three. `label` names the constellation and titles that panel.
+
+    **The logarithmic axis is the figure, not a flourish.** SPP's 3-D RMS is
+    21-33 m and RTK's is 0.08-1.13 m; on a linear axis the RTK band collapses
+    into a flat line lying on zero. The window is fixed and shared by all three
+    panels for the same reason - refitting it per constellation would make
+    BDS-2's 1.13 m and BDS-3's 0.076 m look alike, and telling those two apart
+    is what section four concludes.
+
+    Two things the log axis forces. An exact zero is -inf there, so a magnitude
+    of zero becomes a NaN and leaves a gap, rather than taking the ``1e-9``
+    floor the bar chart uses: a zero-height bar is invisible at any limit, but
+    a line would have to draw the point somewhere, and 1e-9 would claim an
+    accuracy of one nanometre. And no zero line is drawn - it is off the bottom
+    of the axis entirely.
+    """
+    modes = [(str(m[0]), np.asarray(m[1], dtype=float), m[2]) for m in modes]
+    n = max((int(sod.size) for _l, sod, _s in modes), default=0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig.suptitle(t(lang, "title_rtk_spp", rover=rover or "-", n=n), fontsize=12)
+
+    for k, (ax, (label, sod, stats)) in enumerate(zip(axes, modes)):
+        notes = []
+        for key, color, lkey in (("spp", C_SPP, "legend_spp"),
+                                 ("rtk", C_RTK, "legend_rtk")):
+            # Magnitude first, then the gaps. The three components share one
+            # `sod`, so breaking each of them and summing would put the NaNs on
+            # the same indices as breaking the sum - at three times the cost.
+            e, nu, u = (np.asarray(a, dtype=float) for a in stats[key + "_enu"])
+            mag = np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+            mag = np.where(mag > 0.0, mag, np.nan)
+            ax.plot(sod, _break_gaps(sod, mag), color=color, lw=0.7, alpha=0.9,
+                    zorder=2, label=t(lang, lkey))
+            notes.append(t(lang, "annot_rtk_vs_rms",
+                           method=t(lang, lkey), rms=stats[key]["rms_3d"]))
+        ratio = stats["ratio"]
+        notes.append(t(lang, "annot_rtk_vs_gain",
+                       ratio=("%.0f×" % ratio) if np.isfinite(ratio) else "-"))
+
+        ax.set_title(label, loc="left", fontsize=10, color=INK)
+        # The annotation needs a backing here, which the sibling figure gets
+        # away without: the shared five-decade window runs the SPP band
+        # straight through this corner of every panel.
+        ax.text(0.01, 0.97, "\n".join(notes), transform=ax.transAxes, va="top",
+                fontsize=8, color=INK,
+                bbox=dict(facecolor="white", alpha=0.82, edgecolor="none",
+                          pad=2.0))
+        if k == 0:
+            ax.legend(fontsize=9, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    # One label for the middle panel only: the three panels carry the same
+    # quantity, so repeating it three times would say nothing new.
+    axes[1].set_ylabel(t(lang, "axis_rtk_mag"), fontsize=10)
+    # Logarithmic, and set on the first panel only: sharey propagates both the
+    # scale and the window to the other two, which is the point of sharing them.
+    # Without the log scale the RTK band collapses onto zero and the figure says
+    # nothing - the exact failure this figure exists to avoid.
+    axes[0].set_yscale("log")
+    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    _sod_axis(axes[-1], np.concatenate([s for _l, s, _s in modes])
+              if modes else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    return _finish(fig, out_png)
+
+
 def fig_rtk_error_enu_ts(modes, out_png, rover="", lang="en"):
-    """Figure 8-1: RTK float ENU error over time, three constellations overlaid.
+    """Figure 8-2: RTK float ENU error over time, three constellations overlaid.
 
     `modes` is a sequence of ``(label, sod, e, n, u)``, drawn in that order and
     coloured from the shared categorical slots, so the colour a constellation
@@ -913,7 +1005,7 @@ _RTK_BAR_ITEMS = (
 
 
 def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
-    """Figure 8-2: the comparison table as a chart.
+    """Figure 8-3: the comparison table as a chart.
 
     `series` is a sequence of ``(label, stats)`` where `stats` is what
     ``rtk.error_stats`` returns. Seven quantities per constellation - the three

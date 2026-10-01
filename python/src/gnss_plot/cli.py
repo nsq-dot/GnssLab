@@ -729,7 +729,7 @@ def cmd_rtk_plot(args) -> int:
 
     Reads existing ``apps/rtk_float`` output; it does not run the solver. One
     run per constellation is chosen from the output tree, scored against the
-    base station's header coordinate, printed as a table, and drawn as two
+    base station's header coordinate, printed as a table, and drawn as three
     figures.
 
     Unlike ``cs-plot`` this fails when it finds nothing: the RTK runs are what
@@ -817,6 +817,10 @@ def cmd_rtk_plot(args) -> int:
     os.makedirs(png_dir, exist_ok=True)
     n = results[0]["stats"]["n"]
     figs = [
+        figures.fig_rtk_spp_vs_rtk_ts(
+            [(r["label"], r["sod"], r["stats"]) for r in results],
+            os.path.join(png_dir, "vis_rtk_spp_vs_rtk_ts.png"),
+            rover=rover, lang=lang),
         figures.fig_rtk_error_enu_ts(
             [(r["label"], r["sod"]) + tuple(r["stats"]["rtk_enu"])
              for r in results],

@@ -254,7 +254,7 @@ def test_select_runs_orders_by_the_documented_mode_order():
 # the command, end to end
 # --------------------------------------------------------------------------
 
-def test_rtk_plot_writes_two_figures_and_they_are_deterministic():
+def test_rtk_plot_writes_three_figures_and_they_are_deterministic():
     """Byte-for-byte reproducibility, which chapter 7 was bitten by.
 
     The class of bug is an unordered container - a `set` of satellite ids -
@@ -274,7 +274,8 @@ def test_rtk_plot_writes_two_figures_and_they_are_deterministic():
                            "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
             assert rc == 0
             got = sorted(os.listdir(png_dir))
-            assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png"], got
+            assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"

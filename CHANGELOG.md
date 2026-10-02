@@ -206,6 +206,37 @@ Notable changes to this project. The format follows
 
 ### Changed
 
+- **The cycle-slip flags the Kalman solver consumes are now produced, and the
+  wiring is tested against known slips.** `CSDetector` was the producer half of
+  the chapter-7 -> chapter-8 connection and had never been compiled: the only
+  thing that ever called it was the lecture notes' own Kalman program,
+  `examples/exam-8.5-rtk_kal.cpp`, which is not a target. It is now an adapter
+  over the chapter-7 detectors rather than a second Melbourne-Wübbena
+  implementation, it supports BeiDou as well as GPS (its old `else` branch
+  deleted every non-GPS satellite), and it is in the library. `rtk_float
+  --dump-cs` runs it on both receivers, merges them through the flag-carrying
+  `differenceStation` overload, and writes the non-zero flags as
+  `<rover>_<sys>_cs.csv`.
+  The union of GF and MW is deliberate and now demonstrated: the injected plan
+  includes a `(77, 60)` cycle pair, which is the geometry-free combination's
+  exact null space, and it is detected - only the MW half can see it. 8/8
+  injected slips detected on the zero baseline, and every double-difference
+  ambiguity carries a flag.
+  Three defects found on the way, all of which made the wiring silently
+  useless: the detectors' state tables were keyed by satellite alone, so the
+  rover's and the base's recursion windows shared entries; `SPPUCCodePhase::
+  linearize` never set `equSys.station` (the other linearizer does) and
+  `differenceStation` uses that field to put the station back onto the merged
+  keys, so every key carried an empty station and matched no ambiguity at all;
+  and the manifest was not valid JSON on Windows, because paths were written
+  with unescaped backslashes, which `read_manifest` swallows as "no manifest".
+  Known gap, now measured rather than assumed: the detectors' band pair is
+  fixed per system (GPS L1/L2, BeiDou B1I/B2I), so `--sys bds3` produces no
+  flags at all and a merged `bds23` run covers only its BDS-2 satellites. The
+  run reports the uncovered bands by name.
+- **`tests/test_rtk_cycle_slips.py`**, which injects known slips into the rover
+  file, runs the wiring, and asserts the keys reach every ambiguity and the
+  values reach every injected slip.
 - **`SPPUCCodePhase::dualCodeTypes` is now a list of code pairs per system**,
   not one pair. Every mode but the merged BeiDou one still lists exactly one, so
   nothing that existed before changes behaviour — the byte-exact anchors in

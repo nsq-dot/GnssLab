@@ -98,6 +98,7 @@
 #include "RinexNavStore.hpp"
 #include "RinexObsReader.h"
 #include "SPPUCCodePhase.h"
+#include "CSDetector.h"
 #include "SolverLSQ.h"
 #include "ConfigData.h"
 #include "ConfigReader.h"
@@ -133,6 +134,9 @@ void printUsage(const char *prog) {
          "                     write <rover>_<sys>_rtk_fixed.out as well\n"
          "  --ratio <x>        Ratio-test threshold for accepting a fix, >= 1\n"
          "                     (default 3.0; implies --fix)\n"
+         "  --dump-cs          Run the cycle-slip detectors on both receivers and\n"
+         "                     report the flags the Kalman solver would consume\n"
+         "                     (writes <rover>_<sys>_cs.csv)\n"
          "  --dump-epoch <sod> Print the double-difference system for one epoch\n"
          "  --verbose          Per-epoch progress\n"
          "  -h, --help         This message\n";
@@ -238,6 +242,31 @@ SatID pickDatumSat(const EquSys &equSysSD, const SatValueMap &satElevData, bool 
     return best;
 }
 
+/// JSON-escape a string on its way into the manifest.
+///
+/// Windows paths are full of backslashes, and a backslash inside a JSON string
+/// is only legal when it introduces an escape - so writing a path verbatim
+/// produced a manifest that `json.load` rejects outright. The Python reader
+/// treats that as "no manifest" and falls back to defaults, which is what kept
+/// this invisible: on this machine the defaults happened to be the right
+/// answers. Anywhere they were not, a run's own recorded settings would have
+/// been silently dropped.
+std::string jsonEscape(const std::string &s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"':  out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:   out += c; break;
+        }
+    }
+    return out;
+}
+
 /// The solved value of one parameter, or 0 when the epoch does not estimate it.
 ///
 /// The state vector has no fixed layout - it is whatever the equation system
@@ -269,6 +298,7 @@ int main(int argc, char *argv[]) {
     string optObs, optBaseObs, optNav, optOutDir, optStop, optSys;
     string optRatio;
     bool optIsb = false;
+    bool optDumpCs = false;
     bool optVerbose = false;
     bool optFix = false;
     double optDumpSod = -1.0;
@@ -292,6 +322,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--stop")       optStop = needValue("--stop");
         else if (a == "--sys")        optSys = needValue("--sys");
         else if (a == "--isb")        optIsb = true;
+        else if (a == "--dump-cs")    optDumpCs = true;
         else if (a == "--fix")        optFix = true;
         else if (a == "--ratio")      optRatio = needValue("--ratio");
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
@@ -480,6 +511,13 @@ int main(int argc, char *argv[]) {
     // that happens to be harmless.
     sppBase.setEstimateISB(cfg.estimateISB);
 
+    // Two detectors, one per receiver. They could be one - the detectors' state
+    // tables are keyed by (station, satellite) precisely so the two receivers
+    // cannot share a recursion window - but two instances say what is meant.
+    // Only exercised by --dump-cs.
+    CSDetector csDetRover;
+    CSDetector csDetBase;
+
     SolverLSQ solverRTK;
 
     //---------------------------------------------------------------
@@ -522,6 +560,29 @@ int main(int argc, char *argv[]) {
                   "nSDsats,absDxyz,sigma0,postfitRms,"
                   "nAmb,ratio,fixed,absDxyzFixed,isb\n";
     diagStream << fixed << setprecision(6);
+
+    // --- the cycle-slip wiring, when asked for ------------------------------
+    // Its own file rather than more columns on the diagnostics CSV, because it
+    // only exists when --dump-cs is given and the diagnostics file is written
+    // on every run.
+    string csFile = outDir + "/" + obsBase + "_" + mode.key + "_cs.csv";
+    std::ofstream csStream;
+    if (optDumpCs) {
+        csStream.open(csFile, ios::trunc);
+        if (!csStream) {
+            cerr << "Error: cannot open cycle-slip file: " << csFile << "\n";
+            return 1;
+        }
+        // One row per NON-ZERO flag, not per epoch: the interesting content is
+        // the handful of epochs where something fired, and the ground truth a
+        // detector can be scored against is a list of (satellite, epoch) pairs.
+        // The per-epoch coverage counts go to the console and the manifest.
+        csStream << "sod,sat,system,band,flag\n";
+    }
+    long csEpochsWithSlip = 0;
+    long csUncoveredTotal = 0;
+    long csFlagTotal = 0;
+    std::map<string, long> csUncoveredByKey;
 
     //---------------------------------------------------------------
     // Epoch loop
@@ -584,9 +645,29 @@ int main(int argc, char *argv[]) {
 
         EquSys equSysBase = sppBase.getEquSys();
 
+        // --- cycle-slip flags (--dump-cs) ------------------------------------
+        // Detected AFTER both single-point solves. That order is the lecture
+        // notes' own and it is load-bearing: the detectors drop the satellites
+        // they cannot form a combination for, so running them first would take
+        // those satellites out of the equations as well.
+        VariableDataMap csFlagRover, csFlagBase, csFlagSd;
+        if (optDumpCs) {
+            csFlagRover = csDetRover.detect(roverData);
+            csFlagBase  = csDetBase.detect(baseData);
+        }
+
         // --- between stations ------------------------------------------------
         EquSys equSysSD;
-        differenceStation(equSysRover, equSysBase, equSysSD);
+        if (optDumpCs) {
+            // The flag-carrying overload: the same equation system (it calls
+            // the three-argument one internally) plus the two receivers' slip
+            // flags merged into a single map keyed by ambiguity variable.
+            // THIS map is the csData the Kalman solver takes.
+            differenceStation(equSysRover, csFlagRover, equSysBase, csFlagBase,
+                              equSysSD, csFlagSd);
+        } else {
+            differenceStation(equSysRover, equSysBase, equSysSD);
+        }
 
         set<SatID> sdSats;
         for (const auto &oe : equSysSD.obsEquData)
@@ -615,6 +696,40 @@ int main(int argc, char *argv[]) {
                      << equSysDD.obsEquData.size() << " obs, "
                      << equSysDD.varSet.size() << " unknowns)\n";
             continue;
+        }
+
+        // --- cycle-slip coverage ---------------------------------------------
+        // What the filter needs is not the number of flags but whether EVERY
+        // ambiguity it carries has one. An ambiguity with no entry at all is one
+        // the filter would propagate as a constant whatever the observations
+        // did - a silent failure, and the reason this is counted rather than
+        // just summing the flags. The missing keys are collected by name: they
+        // are band pairs, and they say exactly which frequencies the detectors
+        // cannot see.
+        if (optDumpCs) {
+            int nCsNonZero = 0, nCsUncovered = 0;
+            for (const auto &kv : csFlagSd)
+                if (kv.second != 0.0) ++nCsNonZero;
+            for (const Variable &v : equSysDD.varSet) {
+                if (v.getParaType() != Parameter::ambiguity) continue;
+                if (csFlagSd.find(v) == csFlagSd.end()) {
+                    ++nCsUncovered;
+                    ++csUncoveredByKey[v.getObsID().toString()];
+                }
+            }
+            if (nCsNonZero > 0) {
+                ++csEpochsWithSlip;
+                for (const auto &kv : csFlagSd) {
+                    if (kv.second == 0.0) continue;
+                    csStream << sod << ","
+                             << kv.first.getSat().toString() << ","
+                             << kv.first.getObsID().satSys << ","
+                             << kv.first.getObsID().obsType << ","
+                             << (int) kv.second << "\n";
+                }
+            }
+            csUncoveredTotal += nCsUncovered;
+            csFlagTotal += (long) csFlagSd.size();
         }
 
         // --- solve -----------------------------------------------------------
@@ -711,6 +826,21 @@ int main(int argc, char *argv[]) {
                     cout << "[" << (int) vc.first.getParaType() << ":" << vc.second << "]";
                 cout << "\n";
             }
+            // With --dump-cs as well, show why every ambiguity did or did not
+            // find a flag: the two key sets side by side. This is the check
+            // that matters for the filter - a key that is absent means an
+            // ambiguity nothing would ever reset.
+            if (optDumpCs) {
+                cout << "csFlagSd keys (" << csFlagSd.size() << "):\n";
+                for (const auto &kv : csFlagSd)
+                    cout << "    " << kv.first << " = " << kv.second << "\n";
+                cout << "equSysDD ambiguities:\n";
+                for (const Variable &v : equSysDD.varSet)
+                    if (v.getParaType() == Parameter::ambiguity)
+                        cout << "    " << v
+                             << (csFlagSd.count(v) ? "   <- has a flag" : "   <- NO FLAG")
+                             << "\n";
+            }
             cout << "state: " << solverRTK.getState().transpose() << "\n";
             cout << "sigma0 " << diag.sigma0 << "  postfit rms " << diag.postfitRms << "\n\n";
         }
@@ -724,6 +854,7 @@ int main(int argc, char *argv[]) {
     solStream.close();
     if (cfg.fixAmbiguity) fixedStream.close();
     diagStream.close();
+    if (optDumpCs) csStream.close();
 
     //---------------------------------------------------------------
     // Manifest
@@ -732,23 +863,38 @@ int main(int argc, char *argv[]) {
     std::ofstream mf(manifestFile, ios::trunc);
     if (mf) {
         mf << "{\n";
-        mf << "  \"roverObs\": \"" << roverFile << "\",\n";
-        mf << "  \"baseObs\": \"" << baseFile << "\",\n";
-        mf << "  \"nav\": \"" << navFile << "\",\n";
-        mf << "  \"sys\": \"" << mode.key << "\",\n";
-        mf << "  \"sysLabel\": \"" << mode.label << "\",\n";
+        mf << "  \"roverObs\": \"" << jsonEscape(roverFile) << "\",\n";
+        mf << "  \"baseObs\": \"" << jsonEscape(baseFile) << "\",\n";
+        mf << "  \"nav\": \"" << jsonEscape(navFile) << "\",\n";
+        mf << "  \"sys\": \"" << jsonEscape(mode.key) << "\",\n";
+        mf << "  \"sysLabel\": \"" << jsonEscape(mode.label) << "\",\n";
         mf << "  \"isbEstimated\": " << (cfg.estimateISB ? "true" : "false") << ",\n";
         // A list, because a merged BDS-2 + BDS-3 mode has one pair per
         // generation. The single-generation modes still write exactly one.
         mf << "  \"codePairs\": [";
         for (size_t k = 0; k < mode.codePairs.size(); ++k) {
-            mf << (k ? ", " : "") << "[\"" << mode.codePairs[k].first
-               << "\", \"" << mode.codePairs[k].second << "\"]";
+            mf << (k ? ", " : "") << "[\"" << jsonEscape(mode.codePairs[k].first)
+               << "\", \"" << jsonEscape(mode.codePairs[k].second) << "\"]";
         }
         mf << "],\n";
-        mf << "  \"rtkFloatOut\": \"" << solFile << "\",\n";
+        mf << "  \"rtkFloatOut\": \"" << jsonEscape(solFile) << "\",\n";
+        if (optDumpCs) {
+            mf << "  \"csOut\": \"" << jsonEscape(csFile) << "\",\n";
+            mf << "  \"csEpochsWithSlip\": " << csEpochsWithSlip << ",\n";
+            mf << "  \"csAmbiguityFlags\": " << csFlagTotal << ",\n";
+            mf << "  \"csAmbiguitiesWithoutFlag\": " << csUncoveredTotal << ",\n";
+            mf << "  \"csBandsNotCovered\": [";
+            {
+                bool first = true;
+                for (const auto &kv : csUncoveredByKey) {
+                    mf << (first ? "" : ", ") << "\"" << jsonEscape(kv.first) << "\"";
+                    first = false;
+                }
+            }
+            mf << "],\n";
+        }
         if (cfg.fixAmbiguity) {
-            mf << "  \"rtkFixedOut\": \"" << fixedFile << "\",\n";
+            mf << "  \"rtkFixedOut\": \"" << jsonEscape(fixedFile) << "\",\n";
             mf << "  \"fixAmbiguity\": true,\n";
             mf << "  \"ratioThreshold\": " << cfg.ratioThreshold << ",\n";
             mf << "  \"epochsFixed\": " << fixedEpochs << ",\n";
@@ -757,7 +903,7 @@ int main(int argc, char *argv[]) {
         } else {
             mf << "  \"fixAmbiguity\": false,\n";
         }
-        mf << "  \"rtkDiagOut\": \"" << diagFile << "\",\n";
+        mf << "  \"rtkDiagOut\": \"" << jsonEscape(diagFile) << "\",\n";
         mf << "  \"epochs\": " << epochCount << ",\n";
         mf << "  \"epochsSkipped\": "
            << (skipNoRoverSpp + skipSync + skipNoBaseSpp + skipNoSd + skipNoDd) << ",\n";
@@ -767,7 +913,7 @@ int main(int argc, char *argv[]) {
         mf << "  \"skippedTooFewCommonSats\": " << skipNoSd << ",\n";
         mf << "  \"skippedEmptyDoubleDifference\": " << skipNoDd << ",\n";
         mf << "  \"epochsDatumFellBackToIntersection\": " << skipDatumFallback << ",\n";
-        mf << "  \"stopUTC\": \"" << cfg.stopUTC << "\",\n";
+        mf << "  \"stopUTC\": \"" << jsonEscape(cfg.stopUTC) << "\",\n";
         mf << "  \"cutOffElevation\": " << cfg.cutOffElevation << "\n";
         mf << "}\n";
         mf.close();
@@ -781,6 +927,22 @@ int main(int argc, char *argv[]) {
     if (skipNoBaseSpp)       cout << "  base SPP failed        : " << skipNoBaseSpp << "\n";
     if (skipNoSd)            cout << "  too few common sats    : " << skipNoSd << "\n";
     if (skipNoDd)            cout << "  empty double difference: " << skipNoDd << "\n";
+    if (optDumpCs) {
+        cout << "Cycle-slip flags    : " << csEpochsWithSlip << " epoch(s) with a "
+             << "non-zero flag\n";
+        if (csUncoveredTotal > 0) {
+            cout << "  ambiguity variables with NO flag: " << csUncoveredTotal
+                 << "  (the detectors cannot see:";
+            for (const auto &kv : csUncoveredByKey)
+                cout << " " << kv.first;
+            cout << ")\n";
+            cout << "  an ambiguity with no flag is one the filter would carry"
+                 << " across a slip without noticing\n";
+        } else {
+            cout << "  every double-difference ambiguity carries a flag\n";
+        }
+        cout << "Cycle slip -> " << csFile << "\n";
+    }
     if (cfg.fixAmbiguity) {
         cout << "Epochs fixed        : " << fixedEpochs;
         if (epochCount)

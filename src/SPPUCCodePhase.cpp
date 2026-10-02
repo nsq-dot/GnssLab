@@ -198,6 +198,14 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
                                  SatValueMap& satElevData,
                                  ObsData &obsData) {
     EquSys equSys;
+    // The station has to be recorded here, not only on the variables.
+    // SPPIFCode::linearize() sets it and this one did not, and the one reader in
+    // the codebase is differenceStation()'s flag-merging overload, which uses it
+    // to put the station back onto the merged cycle-slip keys. Left empty, every
+    // key it produced carried an empty station and matched no ambiguity variable
+    // at all - so the Kalman filter would never have seen a cycle slip. Nothing
+    // numeric reads this field, which is why the omission was invisible.
+    equSys.station = obsData.station;
     VariableSet varSetTemp;
     for (auto stv: obsData.satTypeValueData) {
         SatID sat = stv.first;

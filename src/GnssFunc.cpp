@@ -679,7 +679,13 @@ void detectCSMW(ObsData &obsData,
     };
 
     // 这个数据在下次调用时需要用到，所以定位为static变量
-    static std::map<SatID, MWData> satMWData;
+    // 状态键里必须带上测站名。这张表是函数内 static，整个进程只有一份，而
+    // RTK 每个历元要对**两台**接收机各探测一次（流动站一次、基准站一次）。
+    // 只按卫星号做键，两者的序列会被塞进同一个递推窗口，对两台接收机都是错的
+    // ——而且不报错，只是探测结果没意义。教材原程序（exam-8.5）正是这么用的，
+    // 它从没被编译运行过，所以一直没暴露。
+    using SatStreamKey = std::pair<std::string, SatID>;
+    static std::map<SatStreamKey, MWData> satMWData;
 
     //==========================
     // 逐个卫星做周跳探测
@@ -755,26 +761,26 @@ void detectCSMW(ObsData &obsData,
         double currentBias(0.0);
         int csFlag(0.0);
 
-        currentDeltaT = (currentEpoch - satMWData[sat].formerEpoch);
-        satMWData[sat].formerEpoch = currentEpoch;
+        currentDeltaT = (currentEpoch - satMWData[{obsData.station, sat}].formerEpoch);
+        satMWData[{obsData.station, sat}].formerEpoch = currentEpoch;
         if (debugCSMW) {
             cout << "currentDeltaT:" << currentDeltaT << endl;
         }
         // Difference between current value of MW and average value
-        currentBias = std::abs(mwValue - satMWData[sat].meanMW);
+        currentBias = std::abs(mwValue - satMWData[{obsData.station, sat}].meanMW);
         if (debugCSMW) {
             cout << "currentBias:" << currentBias << endl;
         }
 
         // Increment window size
-        satMWData[sat].windowSize++;
+        satMWData[{obsData.station, sat}].windowSize++;
 
         /**
          * cycle-slip condition
          * 1. if data interrupt for a given time gap, then cyce slip should be set
          * 2. if current bias is greater than 1 cycle and greater than 4 sigma of mean mw.
          */
-        double sigLimit = 4 * std::sqrt(satMWData[sat].varMW);
+        double sigLimit = 4 * std::sqrt(satMWData[{obsData.station, sat}].varMW);
 
         if (debugCSMW) {
             cout << "deltaTMax:" << deltaTMax << endl;
@@ -789,9 +795,9 @@ void detectCSMW(ObsData &obsData,
             currentBias > sigLimit) {
 
             // reset the filter window size/meanMW/InitialVarofMW
-            satMWData[sat].meanMW = mwValue;
-            satMWData[sat].varMW = varianceMW;
-            satMWData[sat].windowSize = 1;
+            satMWData[{obsData.station, sat}].meanMW = mwValue;
+            satMWData[{obsData.station, sat}].varMW = varianceMW;
+            satMWData[{obsData.station, sat}].windowSize = 1;
 
             if (debugCSMW) {
                 cout << "* CS happened!" << endl;
@@ -799,19 +805,19 @@ void detectCSMW(ObsData &obsData,
             csFlag = 1.0;
         } else {
             // MW bias from the mean value
-            double mwBias(mwValue - satMWData[sat].meanMW);
-            double size(static_cast<double>(satMWData[sat].windowSize));
+            double mwBias(mwValue - satMWData[{obsData.station, sat}].meanMW);
+            double size(static_cast<double>(satMWData[{obsData.station, sat}].windowSize));
 
             // Compute average
-            satMWData[sat].meanMW += mwBias / size;
+            satMWData[{obsData.station, sat}].meanMW += mwBias / size;
 
             // Compute variance
             // Var(i) = Var(i-1) + [ ( mw(i) - meanMW)^2/(i)- 1*Var(i-1) ]/(i);
-            satMWData[sat].varMW += (mwBias * mwBias - satMWData[sat].varMW) / size;
+            satMWData[{obsData.station, sat}].varMW += (mwBias * mwBias - satMWData[{obsData.station, sat}].varMW) / size;
         }
 
         // for print
-        satEpochMeanMWData[sat][currentEpoch] = satMWData[sat].meanMW;
+        satEpochMeanMWData[sat][currentEpoch] = satMWData[{obsData.station, sat}].meanMW;
 
         // 放大到mw数值，以方便绘图
         satEpochCSFlagData[sat][currentEpoch] = csFlag * mwValue;
@@ -936,7 +942,13 @@ void detectCSGFdiff(ObsData &obsData,
     };
 
     // 这个数据在下次调用时需要用到，所以定位为static变量
-    static std::map<SatID, GFData> satGFData;
+    // 状态键里必须带上测站名。这张表是函数内 static，整个进程只有一份，而
+    // RTK 每个历元要对**两台**接收机各探测一次（流动站一次、基准站一次）。
+    // 只按卫星号做键，两者的序列会被塞进同一个递推窗口，对两台接收机都是错的
+    // ——而且不报错，只是探测结果没意义。教材原程序（exam-8.5）正是这么用的，
+    // 它从没被编译运行过，所以一直没暴露。
+    using SatStreamKey = std::pair<std::string, SatID>;
+    static std::map<SatStreamKey, GFData> satGFData;
 
     const double nanValue = std::numeric_limits<double>::quiet_NaN();
 
@@ -963,7 +975,7 @@ void detectCSGFdiff(ObsData &obsData,
 
         satEpochGFData[sat][currentEpoch] = LIValue;
 
-        GFData &state = satGFData[sat];
+        GFData &state = satGFData[{obsData.station, sat}];
 
         double deltaT = (currentEpoch - state.formerEpoch);
         double dLI = nanValue;
@@ -1161,7 +1173,13 @@ void detectCSGFpoly(ObsData &obsData,
     };
 
     // 这个数据在下次调用时需要用到，所以定位为static变量
-    static std::map<SatID, GFPolyData> satGFPolyData;
+    // 状态键里必须带上测站名。这张表是函数内 static，整个进程只有一份，而
+    // RTK 每个历元要对**两台**接收机各探测一次（流动站一次、基准站一次）。
+    // 只按卫星号做键，两者的序列会被塞进同一个递推窗口，对两台接收机都是错的
+    // ——而且不报错，只是探测结果没意义。教材原程序（exam-8.5）正是这么用的，
+    // 它从没被编译运行过，所以一直没暴露。
+    using SatStreamKey = std::pair<std::string, SatID>;
+    static std::map<SatStreamKey, GFPolyData> satGFPolyData;
 
     const double nanValue = std::numeric_limits<double>::quiet_NaN();
 
@@ -1187,7 +1205,7 @@ void detectCSGFpoly(ObsData &obsData,
 
         satEpochGFData[sat][currentEpoch] = LIValue;
 
-        GFPolyData &state = satGFPolyData[sat];
+        GFPolyData &state = satGFPolyData[{obsData.station, sat}];
 
         double deltaT = state.hasAnchor ? (currentEpoch - state.formerEpoch) : 0.0;
         bool gap = state.hasAnchor && (deltaT > deltaTMax);

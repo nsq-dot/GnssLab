@@ -50,12 +50,17 @@ __all__ = [
     "MODE_LABELS",
     "BASE_HEADER_XYZ",
     "OUT_SUFFIX",
+    "FIX_SUFFIX",
     "DIAG_SUFFIX",
     "MANIFEST_SUFFIX",
     "PERCENTILES",
     "DEFAULT_REF_SOURCE",
+    "DEFAULT_RATIO_THRESHOLD",
     "load_rtk_float",
+    "load_rtk_fixed",
     "load_rtk_diag",
+    "fix_summary",
+    "fixed_series",
     "find_runs",
     "select_runs",
     "runs_from_outputs",
@@ -93,6 +98,7 @@ BASE_HEADER_XYZ = (-2267812.4743, 5009352.1093, 3221012.1444)
 DEFAULT_REF_SOURCE = "built-in default (base RINEX not supplied)"
 
 OUT_SUFFIX = "_rtk_float.out"
+FIX_SUFFIX = "_rtk_fixed.out"
 DIAG_SUFFIX = "_rtk_diag.csv"
 MANIFEST_SUFFIX = "_manifest.json"
 
@@ -103,7 +109,11 @@ PERCENTILES = (50.0, 68.0, 95.0)
 #: The diagnostic CSV's numeric columns, in file order after ``sod``.
 #: ``datumSat`` is the one text column and is read separately.
 DIAG_NUMERIC = ("sod", "nRoverEq", "nSD", "nDD", "nUnk", "rank", "cond",
-                "datumFallback", "nSDsats", "absDxyz", "sigma0", "postfitRms")
+                "datumFallback", "nSDsats", "absDxyz", "sigma0", "postfitRms",
+                # The fixing columns, present whether or not fixing ran.
+                # ``ratio`` is 0 when no integer candidate existed, which is
+                # also what it is on a run that did not attempt a fix at all.
+                "nAmb", "ratio", "fixed", "absDxyzFixed")
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +154,52 @@ def load_rtk_float(fn: str):
     return (np.asarray(sod, dtype=float),
             np.asarray(spp, dtype=float).reshape(-1, 3),
             np.asarray(rtk, dtype=float).reshape(-1, 3))
+
+
+def load_rtk_fixed(fn: str):
+    """Read ``<rover>_<sys>_rtk_fixed.out``, written by ``--fix``.
+
+    Returns ``(sod, spp_xyz, float_xyz, ratio, fixed_xyz)``.
+
+    The layout is the textbook main program's, and it is **not** the float
+    file's layout with more columns::
+
+        year doy sod timeSystem "spp:" X Y Z "float-rtk:" X Y Z "ratio:"R "fixed-rtk:"X Y Z
+
+    ``ratio:`` and ``fixed-rtk:`` are glued to their values with no space,
+    exactly as the notes' own program prints them, so every field is located by
+    its label rather than by column position. Reading this file with
+    :func:`load_rtk_float` would produce a full table of plausible, wrong
+    numbers - hence the separate loader.
+
+    The float column is repeated here rather than being looked up in the sibling
+    float file, because the two are then guaranteed to come from one run; the
+    regression test asserts they agree anyway, as a check on the writer.
+    """
+    sod, spp, flt, ratio, fix = [], [], [], [], []
+    with open(fn, "r", encoding="utf-8", errors="replace") as f:
+        for ln in f:
+            p = ln.split()
+            if not any(tok.startswith("fixed-rtk:") for tok in p):
+                continue
+            try:
+                i = p.index("spp:")
+                j = p.index("float-rtk:")
+                k = next(n for n, tok in enumerate(p) if tok.startswith("ratio:"))
+                m = next(n for n, tok in enumerate(p) if tok.startswith("fixed-rtk:"))
+                sod.append(float(p[2]))
+                spp.append([float(p[i + 1]), float(p[i + 2]), float(p[i + 3])])
+                flt.append([float(p[j + 1]), float(p[j + 2]), float(p[j + 3])])
+                ratio.append(float(p[k][len("ratio:"):]))
+                fix.append([float(p[m][len("fixed-rtk:"):]),
+                            float(p[m + 1]), float(p[m + 2])])
+            except (ValueError, IndexError, StopIteration):
+                continue
+    return (np.asarray(sod, dtype=float),
+            np.asarray(spp, dtype=float).reshape(-1, 3),
+            np.asarray(flt, dtype=float).reshape(-1, 3),
+            np.asarray(ratio, dtype=float),
+            np.asarray(fix, dtype=float).reshape(-1, 3))
 
 
 def load_rtk_diag(fn: str):
@@ -196,12 +252,14 @@ def _run_paths(out_path: str) -> dict:
     name = os.path.basename(out_path)
     stem = name[:-len(OUT_SUFFIX)] if name.endswith(OUT_SUFFIX) else name
     rover, _, mode = stem.rpartition("_")
+    sibling = out_path[:-len(OUT_SUFFIX)] if out_path.endswith(OUT_SUFFIX) else out_path
     return {
         "rover": rover or stem,
         "mode": mode,
         "out": out_path,
-        "diag": out_path[:-len(OUT_SUFFIX)] + DIAG_SUFFIX,
-        "manifest": out_path[:-len(OUT_SUFFIX)] + MANIFEST_SUFFIX,
+        "fixed": sibling + FIX_SUFFIX,
+        "diag": sibling + DIAG_SUFFIX,
+        "manifest": sibling + MANIFEST_SUFFIX,
     }
 
 
@@ -438,11 +496,124 @@ def diag_summary(diag) -> dict | None:
     return out
 
 
+#: The ratio-test threshold used when a run has no manifest to read its own
+#: from. Matches ``RTKConfigData::defaults()``.
+DEFAULT_RATIO_THRESHOLD = 3.0
+
+
+def fix_summary(sod, spp_xyz, fixed_xyz, ratio, ref_xyz, threshold):
+    """Score a ``--fix`` run: how much of it was fixed, and how good that is.
+
+    Returns None if `ratio` is empty (a run without ``--fix``). Otherwise:
+
+    ``threshold``
+        the ratio threshold applied, as a number.
+    ``n``, ``n_accepted``, ``fraction``
+        epochs, how many cleared the threshold, and that as a fraction.
+    ``stats_all``
+        :func:`error_stats` over the fixed file **exactly as written** - which
+        is the float solution on every epoch the ratio test rejected. This is
+        what a consumer that ignores the ratio ends up with, and on BDS-2 it is
+        *worse* than the float solution, which is the whole argument for
+        applying the test.
+    ``stats_accepted``
+        the same over the accepted epochs only. This is the number the method
+        should be judged by.
+    ``worst_accepted_m``
+        the largest 3-D error among accepted epochs - the one figure that says
+        whether any fix was wrong.
+    ``ratio_p50``, ``ratio_max``
+        the ratio distribution's middle and top, so a reader can see how much
+        margin the accepted epochs had.
+    """
+    ratio = np.asarray(ratio, dtype=float)
+    if ratio.size == 0:
+        return None
+
+    accepted = ratio > threshold
+    n = int(ratio.size)
+    n_acc = int(accepted.sum())
+
+    def score(mask):
+        if not np.any(mask):
+            return None
+        return error_stats(np.asarray(sod)[mask], np.asarray(spp_xyz)[mask],
+                           np.asarray(fixed_xyz)[mask], ref_xyz)
+
+    stats_all = score(np.ones(n, dtype=bool))
+    stats_acc = score(accepted)
+
+    worst = float("nan")
+    if stats_acc is not None:
+        e, nu, u = (np.asarray(a, dtype=float) for a in stats_acc["rtk_enu"])
+        d = np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+        worst = float(d.max()) if d.size else float("nan")
+
+    return {
+        "threshold": float(threshold),
+        "n": n,
+        "n_accepted": n_acc,
+        "fraction": (n_acc / n) if n else 0.0,
+        "accepted": accepted,
+        "ratios": ratio,
+        "stats_all": stats_all,
+        "stats_accepted": stats_acc,
+        "worst_accepted_m": worst,
+        "ratio_p50": float(np.median(ratio)),
+        "ratio_max": float(ratio.max()),
+    }
+
+
+def fixed_series(result, threshold=None):
+    """Inputs for :func:`gnss_plot.figures.fig_rtk_float_vs_fixed_ts`.
+
+    ``(label, sod, mag_float, mag_fixed, accepted)`` for one run, or None when
+    the run was not fixed. `mag_float` and `mag_fixed` are 3-D error magnitudes
+    in metres; `accepted` is the boolean mask the figure draws only the fixed
+    series inside.
+
+    The float magnitude comes from the same arrays the float figures use, so the
+    grey series here and the series in figures 8-1/8-2 cannot drift apart.
+    """
+    fix = result.get("fix")
+    if not fix:
+        return None
+
+    def mag(enu):
+        e, nu, u = (np.asarray(a, dtype=float) for a in enu)
+        return np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+
+    if threshold is None:
+        threshold = fix["threshold"]
+    accepted = np.asarray(fix["accepted"], dtype=bool) if "accepted" in fix \
+        else np.asarray([], dtype=bool)
+
+    stats_all = fix["stats_all"]
+    if stats_all is None:
+        return None
+    return (result["label"], np.asarray(result["sod"], dtype=float),
+            mag(result["stats"]["rtk_enu"]), mag(stats_all["rtk_enu"]), accepted)
+
+
 def load_run(run: dict, ref_xyz) -> dict:
     """Read one run's files and score it. `run` comes from :func:`find_runs`."""
     sod, spp_xyz, rtk_xyz = load_rtk_float(run["out"])
     diag = load_rtk_diag(run["diag"]) if os.path.isfile(run["diag"]) else None
     manifest = io.read_manifest(run["manifest"]) if os.path.isfile(run["manifest"]) else None
+
+    # The fixed solution is optional: it exists only when the solver ran with
+    # --fix, and that is recorded in the manifest rather than inferable from the
+    # float file.
+    fix = None
+    fixed_path = run.get("fixed")
+    if fixed_path and os.path.isfile(fixed_path):
+        threshold = DEFAULT_RATIO_THRESHOLD
+        if manifest and manifest.get("ratioThreshold") is not None:
+            threshold = float(manifest["ratioThreshold"])
+        fsod, fspp, _fflt, fratio, ffixed = load_rtk_fixed(fixed_path)
+        if fsod.size:
+            fix = fix_summary(fsod, fspp, ffixed, fratio, ref_xyz, threshold)
+
     return {
         "mode": run["mode"],
         "rover": run["rover"],
@@ -452,6 +623,8 @@ def load_run(run: dict, ref_xyz) -> dict:
         "diag_summary": diag_summary(diag),
         "manifest": manifest,
         "stats": error_stats(sod, spp_xyz, rtk_xyz, ref_xyz),
+        "fix": fix,
+        "has_fix": fix is not None,
     }
 
 
@@ -572,6 +745,40 @@ def comparison_table(results, lang: str = "en") -> str:
         lines.append(_row([r["label"], "ENU", t(lang, "rpt_rtk_q_rms3d"),
                            "", "", "%.4f" % s["rtk"]["rms_3d"]], widths, aligns))
 
+    # --- the fixed solution, when the run has one ---------------------------
+    # The one table here whose columns are a *comparison* rather than a
+    # description: the float and fixed columns are the same epochs scored twice,
+    # so the difference between them is the whole point. Both are 3-D RMS in
+    # ENU, and `worst` is the largest error among the epochs the ratio test
+    # accepted - the number that says whether any fix was wrong.
+    fixed_results = [r for r in results if r.get("fix")]
+    if fixed_results:
+        cols = [t(lang, "rpt_rtk_c_sys"), t(lang, "rpt_rtk_c_epochs"),
+                t(lang, "rpt_rtk_c_fixedrate"), t(lang, "rpt_rtk_c_float"),
+                t(lang, "rpt_rtk_c_fixed"), t(lang, "rpt_rtk_c_worstfix"),
+                t(lang, "rpt_rtk_c_gain"), t(lang, "rpt_rtk_c_ratiop50")]
+        widths = [13, 8, 11, 13, 13, 13, 9, 11]
+        aligns = "<" + ">" * 7
+        lines.append("")
+        lines.append("  " + t(lang, "rpt_rtk_fix_head",
+                               thr="%.1f" % fixed_results[0]["fix"]["threshold"]))
+        lines.append(_row(cols, widths, aligns))
+        lines.append("  " + "  ".join("-" * w for w in widths))
+        for r in fixed_results:
+            f = r["fix"]
+            s = r["stats"]
+            acc = f["stats_accepted"]
+            acc_rms = acc["rtk"]["rms_3d"] if acc else float("nan")
+            gain = (s["rtk"]["rms_3d"] / acc_rms) if acc_rms else float("inf")
+            lines.append(_row([r["label"], "%d" % f["n"],
+                               "%.1f%%" % (100.0 * f["fraction"]),
+                               "%.3f m" % s["rtk"]["rms_3d"],
+                               "%.4f m" % acc_rms,
+                               "%.4f m" % f["worst_accepted_m"],
+                               ("%.0fx" % gain) if np.isfinite(gain) else "-",
+                               "%.0f" % f["ratio_p50"]],
+                              widths, aligns))
+
     return "\n".join(lines)
 
 
@@ -605,6 +812,9 @@ def report(results, ref_xyz, source: str, rover: str = "", lang: str = "en") -> 
     print("=" * width)
     print(comparison_table(results, lang))
     print("-" * width)
+    # Note 3 only when there is a fixed solution to misread.
+    if any(r.get("fix") for r in results):
+        print("  " + t(lang, "rpt_rtk_note_fix"))
     print("  " + t(lang, "rpt_rtk_note_bias"))
     print("  " + t(lang, "rpt_rtk_note_ratio"))
     print("=" * width)

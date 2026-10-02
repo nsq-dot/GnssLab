@@ -37,8 +37,15 @@ ROVER = "oem719-202203031500-1.obs"
 def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
                                                   (3.0, 4.0, 12.0)),
                spp_offsets=((3.0, 4.0, 12.0), (0.0, 0.0, 0.0)),
-               sod0=24517.0, n_diag=2):
-    """Write one synthetic run and return the directory it went into."""
+               sod0=24517.0, n_diag=2,
+               fixed_ratios=None, fixed_offsets=None, threshold=3.0):
+    """Write one synthetic run and return the directory it went into.
+
+    `fixed_ratios` turns on the `--fix` half: it writes the fixed-solution file
+    (one ratio and one fixed offset per epoch) and puts `ratioThreshold` in the
+    manifest, which is where the reader takes the threshold from. Left None, the
+    run looks exactly like one without ``--fix``, fixed file and all.
+    """
     os.makedirs(directory, exist_ok=True)
     out = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.OUT_SUFFIX))
     with open(out, "w", encoding="utf-8") as f:
@@ -50,16 +57,51 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
 
     diag = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.DIAG_SUFFIX))
     with open(diag, "w", encoding="utf-8") as f:
+        # The fixing columns are always present, as the C++ writes them, with 0
+        # standing for "no integer candidate" - which is also what they are on a
+        # run that never attempted a fix.
         f.write("sod,nRoverEq,nSD,nDD,nUnk,rank,cond,datumSat,datumFallback,"
-                "nSDsats,absDxyz,sigma0,postfitRms\n")
+                "nSDsats,absDxyz,sigma0,postfitRms,"
+                "nAmb,ratio,fixed,absDxyzFixed\n")
         for i in range(n_diag):
+            ratio = fixed_ratios[i] if (fixed_ratios and i < len(fixed_ratios)) else 0.0
+            accepted = 1 if (fixed_ratios and ratio > threshold) else 0
             f.write("%.6f,32,28,24,15,15,27.950182,G08,0,7,24.953518,"
-                    "0.062900,0.023306\n" % (sod0 + i))
+                    "0.062900,0.023306,12,%.6f,%d,24.938435\n"
+                    % (sod0 + i, ratio, accepted))
+
+    if fixed_ratios is not None:
+        # `ratio:` and `fixed-rtk:` are glued to their values, exactly as the
+        # notes' own printSolution writes them - the reader must cope.
+        #
+        # A REJECTED epoch carries the float value in the fixed column, because
+        # that is what the C++ produces: fixSolution() leaves the coordinate
+        # uncorrected when no integer candidate cleared the search, so
+        # dxyzFixed is the float increment. Reproducing that is the point of
+        # `fixed_offsets` being "the error of the fixed solution where one was
+        # accepted" rather than an unconditional column.
+        fix = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.FIX_SUFFIX))
+        offsets = fixed_offsets or tuple((0.0, 0.0, 0.0) for _ in rtk_offsets)
+        with open(fix, "w", encoding="utf-8") as f:
+            for i, (r, q) in enumerate(zip(rtk_offsets, offsets)):
+                rtkp = REF + np.asarray(r, dtype=float)
+                accepted = fixed_ratios[i] > threshold
+                shown = np.asarray(q, dtype=float) if accepted else np.asarray(r, dtype=float)
+                fxp = REF + shown
+                f.write("2022  62 %11.0f GPS spp: %.3f %.3f %.3f "
+                        "float-rtk: %.3f %.3f %.3f ratio:%.3f "
+                        "fixed-rtk:%.3f %.3f %.3f\n"
+                        % (sod0 + i, rtkp[0], rtkp[1], rtkp[2],
+                           rtkp[0], rtkp[1], rtkp[2], fixed_ratios[i],
+                           fxp[0], fxp[1], fxp[2]))
 
     manifest = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.MANIFEST_SUFFIX))
     with open(manifest, "w", encoding="utf-8") as f:
         f.write('{"sys": "%s", "sysLabel": "SYNTHETIC %s", "epochs": %d,'
-                ' "cutOffElevation": 10}\n' % (mode, mode.upper(), len(rtk_offsets)))
+                ' "cutOffElevation": 10, "fixAmbiguity": %s,'
+                ' "ratioThreshold": %s}\n'
+                % (mode, mode.upper(), len(rtk_offsets),
+                   "true" if fixed_ratios is not None else "false", threshold))
     return directory
 
 
@@ -99,6 +141,66 @@ def test_load_rtk_float_ignores_the_other_printSolution_overload():
         sod, spp, rtk_xyz = rtk.load_rtk_float(fn)
 
     assert sod.size == 0 and spp.size == 0 and rtk_xyz.size == 0
+
+
+def test_load_rtk_fixed_reads_the_glued_label_columns():
+    """`ratio:` and `fixed-rtk:` have no space before their values.
+
+    That is how the textbook's own printSolution writes them, so the fields are
+    found by label; a positional read would take the ratio for a coordinate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        # Epoch 0 is accepted and its fix moves 2 cm; epoch 1's ratio is 1.5,
+        # below the threshold, so its fixed column repeats the float solution.
+        _write_run(tmp, fixed_ratios=(10.0, 1.5),
+                   fixed_offsets=((0.02, 0.0, 0.0), (0.0, 0.0, 0.0)))
+        fn = os.path.join(tmp, "%s_gps%s" % (ROVER, rtk.FIX_SUFFIX))
+        sod, spp, flt, ratio, fix = rtk.load_rtk_fixed(fn)
+
+    assert list(sod) == [24517.0, 24518.0]
+    assert spp.shape == (2, 3) and flt.shape == (2, 3) and fix.shape == (2, 3)
+    assert list(ratio) == [10.0, 1.5]
+    # The accepted epoch's fixed column is its own number...
+    assert abs(np.linalg.norm(fix[0] - flt[0]) - 0.02) < 1e-3
+    # ...and the rejected epoch's is the float solution, column for column.
+    assert np.allclose(fix[1], flt[1], atol=1e-9)
+
+
+def test_fix_summary_separates_accepted_from_rejected():
+    """The one figure that says whether the method is usable.
+
+    The fixture's second epoch has ratio 1.5, below the threshold of 3, and a
+    13 m float error. Because a rejected epoch carries the float solution into
+    the fixed column, those 13 m count against `stats_all` and not against
+    `stats_accepted` - which is exactly the trap the note in the console report
+    warns about, and why the two numbers are reported separately.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, fixed_ratios=(10.0, 1.5),
+                   fixed_offsets=((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)))
+        result = rtk.load_run(rtk.find_runs(tmp)[0], REF)
+
+    fix = result["fix"]
+    assert fix is not None and result["has_fix"]
+    assert fix["threshold"] == 3.0
+    assert fix["n"] == 2 and fix["n_accepted"] == 1
+    assert abs(fix["fraction"] - 0.5) < 1e-12
+    assert list(fix["accepted"]) == [True, False]
+    assert abs(fix["ratio_p50"] - 5.75) < 1e-9
+
+    # Epoch 0 is exact in the fixed column; epoch 1's 13 m is the float
+    # solution showing through, so the accepted-only figures see none of it.
+    assert abs(fix["worst_accepted_m"]) < 1e-3
+    assert abs(fix["stats_accepted"]["rtk"]["rms_3d"]) < 1e-3
+    assert abs(fix["stats_all"]["rtk"]["rms_3d"] - 13.0 / np.sqrt(2.0)) < 5e-3
+
+
+def test_a_run_without_fix_has_no_fix_summary():
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp)
+        result = rtk.load_run(rtk.find_runs(tmp)[0], REF)
+    assert result["fix"] is None and not result["has_fix"]
+    assert rtk.fixed_series(result) is None
 
 
 def test_load_rtk_diag_reads_named_columns_and_the_datum_token():
@@ -279,6 +381,57 @@ def test_rtk_plot_writes_three_figures_and_they_are_deterministic():
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
+
+
+def test_rtk_plot_writes_five_figures_when_the_run_was_fixed():
+    """The two fixed-solution figures appear only for a fixed run.
+
+    Same determinism requirement as the float figures - the ratio histogram
+    draws one `hist` per constellation and the time series masks an array, and
+    either could pick up an order-dependent artefact.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, fixed_ratios=(10.0, 1.5))
+        pngs = []
+        for run in ("a", "b"):
+            png_dir = os.path.join(tmp, "figs-" + run)
+            rc = cli.main(["rtk-plot", "--out-dir", tmp, "--png-dir", png_dir,
+                           "--lang", "en",
+                           "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
+            assert rc == 0
+            got = sorted(os.listdir(png_dir))
+            assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
+                           "vis_rtk_float_vs_fixed_ts.png", "vis_rtk_ratio_hist.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
+            pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
+
+    assert pngs[0] == pngs[1], "the same input must produce the same bytes"
+
+
+def test_rtk_plot_skips_the_fix_figures_on_request():
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, fixed_ratios=(10.0, 1.5))
+        png_dir = os.path.join(tmp, "figs")
+        rc = cli.main(["rtk-plot", "--out-dir", tmp, "--png-dir", png_dir,
+                       "--lang", "en", "--no-fix-figures",
+                       "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
+        assert rc == 0
+        got = sorted(os.listdir(png_dir))
+
+    assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
+                   "vis_rtk_spp_vs_rtk_ts.png"], got
+
+
+def test_comparison_table_gains_the_fixing_table_only_when_fixed():
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, fixed_ratios=(10.0, 1.5))
+        fixed = rtk.comparison_table([rtk.load_run(rtk.find_runs(tmp)[0], REF)], "en")
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp)
+        plain = rtk.comparison_table([rtk.load_run(rtk.find_runs(tmp)[0], REF)], "en")
+
+    assert "float 3D RMS" in fixed and "worst accepted" in fixed
+    assert "float 3D RMS" not in plain
 
 
 def test_rtk_plot_fails_when_there_is_nothing_to_plot():

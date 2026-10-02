@@ -167,6 +167,17 @@ ratio in the banner line, the percentiles of the 3-D error with a count of the
 epochs whose post-fit `sigma0` is more than ten times the run's median, and the
 per-axis bias and sigma, both in ENU and on the raw ECEF axes.
 
+**When the runs were made with `--fix`, two more figures and one more table
+appear**: the float and fixed 3-D error on figure 8-1's own window, and the
+distribution of the ratio test with its threshold marked. The extra table gives
+the fixed rate, the float and fixed RMS, the worst error among the accepted
+epochs and the gain — the last of which is empty (`-`) rather than zero when
+nothing was fixed. The fixed series is drawn only on the epochs the ratio test
+accepted, because that is the only part of it a consumer may use; and the
+"worst accepted" column is the one that says whether any fix was wrong.
+`--no-fix-figures` skips them for a run that was fixed but is being plotted for
+its float solution.
+
 The ECEF rows are there because a per-axis reading of the `.out` file lands in
 that frame, and because the two frames' three values square-sum to the same
 total (the trace of a covariance is rotation-invariant) — so the ENU and ECEF

@@ -831,6 +831,25 @@ def cmd_rtk_plot(args) -> int:
             os.path.join(png_dir, "vis_rtk_accuracy_bars.png"),
             rover=rover, lang=lang),
     ]
+
+    # Figures 8-4 and 8-5 exist only when the run was fixed, and they are the
+    # reason the chapter's exercise 2 can be read off a picture rather than a
+    # table. `--no-fix-figures` suppresses them for a run that was fixed but is
+    # being plotted for its float solution.
+    fixed = [r for r in results if r.get("fix")]
+    if fixed and not args.no_fix_figures:
+        threshold = fixed[0]["fix"]["threshold"]
+        series = [s for s in (rtk.fixed_series(r) for r in fixed) if s]
+        figs.append(figures.fig_rtk_float_vs_fixed_ts(
+            series, os.path.join(png_dir, "vis_rtk_float_vs_fixed_ts.png"),
+            rover=rover, lang=lang, threshold=threshold))
+        figs.append(figures.fig_rtk_ratio_hist(
+            [(r["label"], r["fix"]["ratios"]) for r in fixed],
+            os.path.join(png_dir, "vis_rtk_ratio_hist.png"),
+            rover=rover, lang=lang, threshold=threshold))
+    elif results and not fixed and not args.no_fix_figures:
+        _warn("no <rover>_<sys>_rtk_fixed.out beside the float runs; "
+              "figures 8-4 and 8-5 need a run with --fix")
     print()
     print(t(lang, "saved_to", dir=png_dir))
     for f in figs:
@@ -1003,6 +1022,8 @@ def build_parser() -> argparse.ArgumentParser:
     rk.add_argument("--lang", default="en", choices=list(LANGS),
                     help="figure and report language (default: en)")
     rk.add_argument("--no-figures", action="store_true", help="table only")
+    rk.add_argument("--no-fix-figures", dest="no_fix_figures", action="store_true",
+                    help="skip figures 8-4 and 8-5 even when the runs were fixed")
     rk.set_defaults(func=cmd_rtk_plot)
 
     a = sub.add_parser("app", help="run an auxiliary program")

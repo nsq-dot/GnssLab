@@ -58,6 +58,15 @@ Notable changes to this project. The format follows
   34 mm); fixed accuracy 1.1–5.1 mm against 0.076–1.128 m float. The ratio test is
   what earns that — on BDS-2, discarding it would leave 1322 epochs, 16.7% of the
   run, sitting on a metre-to-25-metre error.
+- **Figures 8-4 and 8-5, and the chapter-8 reader behind them.** `gnss rtk-plot`
+  gained `load_rtk_fixed`, `fix_summary` and two plots drawn only when the runs
+  were fixed: the float and fixed 3-D error on figure 8-1's own window (so the
+  two figures are read against each other, and the gap between the bands *is*
+  the result), and the ratio distribution with the threshold marked. The fixed
+  series is drawn only where the ratio test accepted — interpolating it across a
+  rejection would show a series no consumer ever gets. The console table gained
+  a fixing block (fixed rate, float and fixed RMS, worst accepted error, gain),
+  and `rtk.md` §八 now carries exercise 2 and the three conclusions.
 - **`examples/exam-8.3-lambda.cpp`, built as `mlambda`** — chapter 8.3.5's
   ambiguity fixing. It was the one chapter-8 exercise source left unbuilt (and
   the only one kept under its upstream file name, so it needed an explicit target

@@ -154,6 +154,31 @@ STRINGS: dict[str, dict[str, str]] = {
         # collapsed onto the reference); the fallback is the console table's.
         "annot_rtk_vs_gain": "SPP/RTK 3-D RMS improvement: {ratio}",
 
+        # --- the fixed solution (figures 8-4 and 8-5) ---
+        "title_rtk_fix": "RTK float vs fixed 3-D error, one panel per "
+                         "constellation ({rover}, {n} epochs each, ratio > {thr})",
+        # Deliberately the same length as axis_rtk_mag, which figure 8-1 uses:
+        # a longer label runs off the bottom of a three-panel figure once
+        # tight_layout has taken its share. What grey and red mean is the
+        # legend's job, not the axis label's.
+        "axis_rtk_mag_fix": "3-D error |d| [m] — log axis, one window for all panels",
+        "legend_float": "RTK float",
+        "legend_fixed": "RTK fixed (accepted)",
+        # {rate} and the RMS values are numbers, not preformatted strings: the
+        # "worst accepted" figure is the one that says whether any fix was
+        # wrong, so it is printed to a tenth of a millimetre.
+        "annot_rtk_fix": "{mode}: {rate:.1f}% fixed  ·  float RMS {frms:.3f} m  "
+                         "·  fixed RMS {xrms:.4f} m  ·  worst accepted {worst:.4f} m",
+        "title_rtk_ratio": "Ratio-test distribution by constellation "
+                           "({rover}, threshold {thr})",
+        # "Ω2/Ω1", not the subscript forms: the CJK font families this package
+        # falls back to have no glyph for U+2082/U+2081 and render them as
+        # boxes, in both languages.
+        "axis_ratio": "ratio Ω2/Ω1 — log axis",
+        "axis_ratio_share": "share of the run [%]",
+        "annot_ratio": "{mode}: {rate:.1f}% accepted ({n} epochs)",
+        "annot_ratio_thr": "threshold {thr} — left of this line is rejected",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -210,6 +235,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "rpt_rtk_q_rms": "RTK RMS",
         "rpt_rtk_q_rms3d": "RTK 3-D RMS",
 
+        "rpt_rtk_fix_head": "[Ambiguity resolution]  ratio > {thr} is accepted;  "
+                            "the two RMS columns are the SAME epochs, float vs fixed",
+        "rpt_rtk_c_fixedrate": "fixed",
+        "rpt_rtk_c_float": "float 3D RMS",
+        "rpt_rtk_c_fixed": "fixed 3D RMS",
+        "rpt_rtk_c_worstfix": "worst accepted",
+        "rpt_rtk_c_gain": "gain",
+        "rpt_rtk_c_ratiop50": "ratio p50",
+        "rpt_rtk_note_fix":
+            "Note 3 — 'fixed 3D RMS' counts only the epochs the ratio test "
+            "accepted, and 'worst accepted' is the largest error among them: if "
+            "it is centimetres then no fix in the run was wrong. Both are needed, "
+            "because the fixed file ALSO contains the float solution on every "
+            "epoch that was rejected — reading it without applying the threshold "
+            "is how a solution ends up metres out.",
         "rpt_rtk_note_bias":
             "Note 1 — the bias is a datum offset, not an accuracy figure. "
             "SPPUCCodePhase::solve builds the base station's equations at its "
@@ -339,6 +379,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_vs_rms": "{method}: 三维 RMS {rms:.3f} m",
         "annot_rtk_vs_gain": "SPP/RTK 三维 RMS 提升倍数: {ratio}",
 
+        # --- 固定解（图 8-4、图 8-5）---
+        "title_rtk_fix": "RTK 浮点解与固定解三维误差时序，每个星座一个面板"
+                         "（{rover}，各 {n} 个历元，ratio > {thr}）",
+        "axis_rtk_mag_fix": "三维误差 |d| [m] —— 对数轴，三面板共用窗口",
+        "legend_float": "RTK 浮点解",
+        "legend_fixed": "RTK 固定解（已接受）",
+        "annot_rtk_fix": "{mode}: 固定率 {rate:.1f}%  ·  浮点 RMS {frms:.3f} m  "
+                         "·  固定 RMS {xrms:.4f} m  ·  已接受的最坏 {worst:.4f} m",
+        "title_rtk_ratio": "ratio 检验分布，每个星座一条"
+                           "（{rover}，阈值 {thr}）",
+        "axis_ratio": "ratio Ω2/Ω1 —— 对数轴",
+        "axis_ratio_share": "占本星座历元的比例 [%]",
+        "annot_ratio": "{mode}: 接受 {rate:.1f}%（共 {n} 个历元）",
+        "annot_ratio_thr": "阈值 {thr} —— 该线左侧全部被拒",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -390,6 +445,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "rpt_rtk_q_rms": "RTK RMS",
         "rpt_rtk_q_rms3d": "RTK 三维 RMS",
 
+        "rpt_rtk_fix_head": "【模糊度固定】ratio > {thr} 判为接受；两列 RMS 是同一批历元，"
+                            "浮点解与固定解各算一次",
+        "rpt_rtk_c_fixedrate": "固定率",
+        "rpt_rtk_c_float": "浮点 三维RMS",
+        "rpt_rtk_c_fixed": "固定 三维RMS",
+        "rpt_rtk_c_worstfix": "已接受最坏",
+        "rpt_rtk_c_gain": "提升",
+        "rpt_rtk_c_ratiop50": "ratio 中位数",
+        "rpt_rtk_note_fix":
+            "说明 3 —— “固定 三维RMS”只统计被 ratio 检验接受的历元，“已接受最坏”是这批历元里"
+            "最大的误差：若它是厘米级，说明整段没有一个固定错。两列缺一不可，因为固定解文件在"
+            "被拒历元上写的仍是浮点解——不按阈值过滤就直接采用，会得到米级的解。",
         "rpt_rtk_note_bias":
             "说明 1 —— 偏差不是精度指标，而是基准偏移。SPPUCCodePhase::solve 用基准站 "
             "RINEX 表头坐标建立基准站方程后直接返回（不再迭代），流动站则迭代到 "

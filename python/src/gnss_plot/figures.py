@@ -38,6 +38,8 @@ __all__ = [
     "fig_rtk_spp_vs_rtk_ts",
     "fig_rtk_error_enu_ts",
     "fig_rtk_accuracy_bars",
+    "fig_rtk_float_vs_fixed_ts",
+    "fig_rtk_ratio_hist",
 ]
 
 # Colour slots (blue / orange / aqua), plus ink, grid and zero-line greys.
@@ -1081,6 +1083,148 @@ def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
     handles = [Patch(facecolor=colors[i], edgecolor=INK, linewidth=0.4,
                      label=classes[i]) for i in range(3)]
     ax.legend(handles=handles, fontsize=9, loc="upper left", framealpha=0.9)
+    style_ax(ax)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    return _finish(fig, out_png)
+
+
+def _magnitude(enu):
+    """3-D magnitude of an ``(E, N, U)`` triple, as a metre array."""
+    e, nu, u = (np.asarray(a, dtype=float) for a in enu)
+    return np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+
+
+def fig_rtk_float_vs_fixed_ts(modes, out_png, rover="", lang="en", threshold=3.0):
+    """Figure 8-4: the float solution against the fixed one, per constellation.
+
+    `modes` is a sequence of ``(label, sod, mag_float, mag_fixed, accepted)``:
+    all four arrays share `sod`, `mag_fixed` is the fixed file's error **as
+    written** (so it equals the float one on the epochs the ratio test
+    rejected), and `accepted` is the mask selecting the epochs the fixed series
+    is actually drawn on.
+
+    The grey/red pairing is figure 8-1's: grey is the coarse solution the eye
+    should discount, red the one under discussion. Here that is float against
+    fixed rather than SPP against RTK, and the legends say so - the grammar is
+    what carries over, not the identity of the two methods.
+
+    **The window is figure 8-1's**, unchanged and shared by all three panels.
+    That is what makes the two figures readable together: the grey band here is
+    at the height of the red band there, and the gap between grey and red here is
+    what fixing bought. Refitting it per constellation would erase the
+    BDS-2/BDS-3 difference that section four is about.
+
+    Drawing the fixed series only where the ratio test accepted is the point
+    rather than a convenience. Interpolating it across a rejection, or falling
+    back to the float value there, would show a series that no consumer sees:
+    what a consumer gets on a rejected epoch is the float solution, and on
+    BDS-2 that is metres, not millimetres.
+    """
+    modes = [(str(m[0]), np.asarray(m[1], dtype=float),
+              np.asarray(m[2], dtype=float), np.asarray(m[3], dtype=float),
+              np.asarray(m[4], dtype=bool)) for m in modes]
+    n = max((int(sod.size) for _l, sod, *_r in modes), default=0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig.suptitle(t(lang, "title_rtk_fix", rover=rover or "-", n=n,
+                   thr="%.1f" % threshold), fontsize=12)
+
+    for k, (ax, (label, sod, mag_f, mag_x, acc)) in enumerate(zip(axes, modes)):
+        # Magnitude zero is -inf on the log axis, so it becomes a gap rather
+        # than a plotted point; see fig_rtk_spp_vs_rtk_ts for why 1e-9 is not
+        # used here.
+        grey = np.where(mag_f > 0.0, mag_f, np.nan)
+        red = np.where(acc & (mag_x > 0.0), mag_x, np.nan)
+        ax.plot(sod, _break_gaps(sod, grey), color=C_SPP, lw=0.6, alpha=0.85,
+                zorder=2, label=t(lang, "legend_float"))
+        ax.plot(sod, _break_gaps(sod, red), color=C_RTK, lw=0.6, alpha=0.95,
+                zorder=3, label=t(lang, "legend_fixed"))
+
+        n_acc = int(acc.sum())
+        rate = (100.0 * n_acc / sod.size) if sod.size else 0.0
+        frms = float(np.sqrt(np.nanmean(grey ** 2))) if sod.size else float("nan")
+        xrms = (float(np.sqrt(np.nanmean(red ** 2))) if n_acc else float("nan"))
+        worst = float(np.nanmax(red)) if n_acc else float("nan")
+        ax.text(0.01, 0.97,
+                t(lang, "annot_rtk_fix", mode=label, rate=rate, frms=frms,
+                  xrms=xrms, worst=worst),
+                transform=ax.transAxes, va="top", fontsize=8, color=INK,
+                bbox=dict(facecolor="white", alpha=0.82, edgecolor="none", pad=2.0))
+        ax.set_title(label, loc="left", fontsize=10, color=INK)
+        if k == 0:
+            ax.legend(fontsize=9, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    axes[1].set_ylabel(t(lang, "axis_rtk_mag_fix"), fontsize=10)
+    axes[0].set_yscale("log")
+    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    _sod_axis(axes[-1], np.concatenate([s for _l, s, *_r in modes])
+              if modes else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    return _finish(fig, out_png)
+
+
+def fig_rtk_ratio_hist(modes, out_png, rover="", lang="en", threshold=3.0):
+    """Figure 8-5: where the ratio test falls, and how much it rejects.
+
+    `modes` is a sequence of ``(label, ratio)``. Each constellation gets a
+    stepped histogram of its ratio values as a fraction of its own epochs, so
+    the three are comparable however many epochs they have, with the threshold
+    drawn as a vertical line.
+
+    The x axis is logarithmic because the ratios span five decades - the
+    medians are in the hundreds and the smallest accepted value is just above
+    the threshold - and because the question the figure answers is about the
+    *tail* on the left: how much of the run sits below the line.
+
+    A ratio of exactly 0 means no integer candidate existed at all (see
+    ``ARLambda::resolve``), which is a different thing from a candidate that
+    lost the test, so those epochs are counted separately in the annotation and
+    left off the log axis rather than piled at an arbitrary left edge. On the
+    chapter's runs there are none; a run where they appear is one where the
+    covariance was unusable, which is worth seeing.
+    """
+    modes = [(str(m[0]), np.asarray(m[1], dtype=float)) for m in modes]
+    series = [(label, r[r > 0.0], int((r <= 0.0).sum())) for label, r in modes]
+    positive = np.concatenate([r for _l, r, _z in series if r.size]) \
+        if any(r.size for _l, r, _z in series) else np.asarray([1.0])
+
+    lo = max(0.5, float(positive.min()) * 0.8)
+    hi = max(float(positive.max()) * 1.25, threshold * 2.0)
+    edges = np.logspace(np.log10(lo), np.log10(hi), 41)
+
+    fig, ax = plt.subplots(figsize=(11, 5.2))
+    fig.suptitle(t(lang, "title_rtk_ratio", rover=rover or "-",
+                   thr="%.1f" % threshold), fontsize=12)
+
+    # One colour per constellation, from the same three categorical slots every
+    # other chapter-8 figure uses, so a constellation keeps its colour across
+    # 8-1, 8-2 and 8-5.
+    colors = (C_E, C_N, C_U)
+    for i, (label, r, n_zero) in enumerate(series):
+        if r.size:
+            ax.hist(r, bins=edges, histtype="step", lw=1.4,
+                    color=colors[i % len(colors)],
+                    density=False, weights=np.full(r.size, 100.0 / r.size),
+                    label=t(lang, "annot_ratio", mode=label,
+                            rate=100.0 * float((r > threshold).mean()),
+                            n=int(r.size)))
+        if n_zero:
+            print(f"  note: {label}: {n_zero} epoch(s) with ratio 0 "
+                  f"(no integer candidate) are not on the log axis")
+
+    ax.axvline(threshold, color=C_SLIP, lw=1.2, ls="--", zorder=3)
+    # To the RIGHT of the line and inside the axes. The threshold sits near the
+    # left end of a five-decade axis, so a right-aligned label would hang out
+    # over the y tick labels.
+    ax.text(threshold * 1.15, ax.get_ylim()[1] * 0.97,
+            t(lang, "annot_ratio_thr", thr="%.1f" % threshold),
+            color=C_SLIP, fontsize=8, ha="left", va="top")
+    ax.set_xscale("log")
+    ax.set_xlabel(t(lang, "axis_ratio"), fontsize=10)
+    ax.set_ylabel(t(lang, "axis_ratio_share"), fontsize=10)
+    ax.legend(fontsize=8.5, loc="upper right", framealpha=0.9)
     style_ax(ax)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     return _finish(fig, out_png)

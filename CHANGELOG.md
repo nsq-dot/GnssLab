@@ -67,6 +67,34 @@ Notable changes to this project. The format follows
   rejection would show a series no consumer ever gets. The console table gained
   a fixing block (fixed rate, float and fixed RMS, worst accepted error, gain),
   and `rtk.md` §八 now carries exercise 2 and the three conclusions.
+- **A merged BeiDou solution and the inter-system bias behind it** (`--sys bds23`,
+  `--isb`). Chapter 8's exercise 2 says the two BeiDou generations differ in
+  receiver clock, so they must be solved separately; the code could not merge
+  them at all, because the two generations broadcast *different* second
+  frequencies (B2I vs B2a) and `dualCodeTypes` insisted on one pair per system.
+  That is now a *list* of pairs tried in order, so each satellite takes the first
+  it can satisfy — which is what lets `bds23` see eleven satellites where the
+  single-generation modes see seven and eight. The existing three modes still list one pair
+  each, so their output is unchanged, anchors included.
+  `--isb` adds one unknown (`Parameter::ifb`, which had sat unused in the enum):
+  coefficient 1 on a BDS-3 satellite's pseudoranges, 0 on a BDS-2 one, so it
+  cancels within a generation and survives across one. `SatID`'s long-standing
+  `// int generation;` todo is answered by `bdsGeneration()` — a function rather
+  than the field, because a member has to be set by every constructor and a
+  stale one is worse than a derived one.
+  Two things only the dumps revealed, both now commented in the source: the
+  parameter must go on the **pseudoranges only** (on the carrier phase it is not
+  separable from the ambiguity, and estimating it there drops the median
+  ambiguity ratio from 1453 to 6.5 and the fixed rate from 96.7% to 91.6%), and
+  `differenceSat` must take the **union** of the two coefficient maps, because
+  this is the one parameter that can be present on only one side.
+  Measured on data/Zero-baseline over 7934 epochs: the relative bias is
+  **−12 mm with 19 mm of per-epoch scatter** — zero within the noise. So merging
+  the generations costs nothing here, and the real reason they are solved
+  separately is the frequency incompatibility, not the bias. Adding the
+  parameter changes the fixed solution not at all (1.0 mm either way) and the
+  float RMS from 0.0715 m to 0.0784 m — the cost of estimating a parameter that
+  is zero.
 - **`examples/exam-8.3-lambda.cpp`, built as `mlambda`** — chapter 8.3.5's
   ambiguity fixing. It was the one chapter-8 exercise source left unbuilt (and
   the only one kept under its upstream file name, so it needed an explicit target
@@ -178,6 +206,17 @@ Notable changes to this project. The format follows
 
 ### Changed
 
+- **`SPPUCCodePhase::dualCodeTypes` is now a list of code pairs per system**,
+  not one pair. Every mode but the merged BeiDou one still lists exactly one, so
+  nothing that existed before changes behaviour — the byte-exact anchors in
+  `tests/test_rtk_float_regression.py` still pass.
+- **`fixSolution` picks the three coordinates out by parameter type** instead of
+  assuming they are the first three entries of the non-ambiguity block. That
+  assumption held while the block was only ever the coordinates; a merged BeiDou
+  solution also estimates the inter-system bias, which sorts before the
+  ambiguities, so `dxyzFixed` would have been built from four numbers. It also
+  now checks that the ambiguities really are the last block rather than trusting
+  it, because getting that wrong mixes a coordinate with an ambiguity silently.
 - **Two CI gaps on the chapter-8 side.** The "all targets were produced" check
   had drifted: `rtk_float`, `sync_obs` and `diff_station` were built but never
   checked, so any of them could have silently stopped building. And

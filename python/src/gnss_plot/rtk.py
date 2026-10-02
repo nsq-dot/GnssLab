@@ -113,7 +113,12 @@ DIAG_NUMERIC = ("sod", "nRoverEq", "nSD", "nDD", "nUnk", "rank", "cond",
                 # The fixing columns, present whether or not fixing ran.
                 # ``ratio`` is 0 when no integer candidate existed, which is
                 # also what it is on a run that did not attempt a fix at all.
-                "nAmb", "ratio", "fixed", "absDxyzFixed")
+                "nAmb", "ratio", "fixed", "absDxyzFixed",
+                # The estimated BDS-2/BDS-3 receiver inter-system bias, metres.
+                # 0 when the epoch did not estimate one - which is every epoch
+                # of a run without --isb, and every epoch of a mixed run whose
+                # satellites all came from one generation.
+                "isb")
 
 
 # ---------------------------------------------------------------------------

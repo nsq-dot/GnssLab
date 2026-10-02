@@ -127,6 +127,8 @@ void printUsage(const char *prog) {
     for (const RtkMode &m : rtkModes())
         cout << "                       " << left << setw(6) << m.key << " " << m.label << "\n";
     cout <<
+         "  --isb              Estimate the receiver inter-system bias between\n"
+         "                     BDS-2 and BDS-3 (only meaningful for --sys bds23)\n"
          "  --fix              Resolve ambiguities to integers (MLAMBDA) and\n"
          "                     write <rover>_<sys>_rtk_fixed.out as well\n"
          "  --ratio <x>        Ratio-test threshold for accepting a fix, >= 1\n"
@@ -236,6 +238,24 @@ SatID pickDatumSat(const EquSys &equSysSD, const SatValueMap &satElevData, bool 
     return best;
 }
 
+/// The solved value of one parameter, or 0 when the epoch does not estimate it.
+///
+/// The state vector has no fixed layout - it is whatever the equation system
+/// asked for, minus what the differences removed - so a parameter is looked up
+/// by type rather than by position. Used for the inter-system bias, which is
+/// present only in a mixed solution and only when its column came out non-zero.
+double stateValue(const EquSys &equSys, const SolverLSQ &solver,
+                  Parameter::ParameterName type) {
+    const VectorXd x = solver.getState();
+    int i = 0;
+    for (const Variable &v : equSys.varSet) {
+        if (v.getParaType() == type)
+            return (i < x.size()) ? x(i) : 0.0;
+        ++i;
+    }
+    return 0.0;
+}
+
 }  // namespace
 
 int main(int argc, char *argv[]) {
@@ -248,6 +268,7 @@ int main(int argc, char *argv[]) {
 
     string optObs, optBaseObs, optNav, optOutDir, optStop, optSys;
     string optRatio;
+    bool optIsb = false;
     bool optVerbose = false;
     bool optFix = false;
     double optDumpSod = -1.0;
@@ -270,6 +291,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--out-dir")    optOutDir = needValue("--out-dir");
         else if (a == "--stop")       optStop = needValue("--stop");
         else if (a == "--sys")        optSys = needValue("--sys");
+        else if (a == "--isb")        optIsb = true;
         else if (a == "--fix")        optFix = true;
         else if (a == "--ratio")      optRatio = needValue("--ratio");
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
@@ -325,6 +347,7 @@ int main(int argc, char *argv[]) {
     if (!optOutDir.empty())  cfg.outDir = optOutDir;
     if (!optStop.empty())    cfg.stopUTC = optStop;
     if (!optSys.empty())     cfg.sys = optSys;
+    if (optIsb)              cfg.estimateISB = true;
     if (optFix)              cfg.fixAmbiguity = true;
     if (!optRatio.empty()) {
         try {
@@ -369,6 +392,8 @@ int main(int argc, char *argv[]) {
         cout << "cutOff    : " << cfg.cutOffElevation << " deg\n";
         cout << "fix       : " << (cfg.fixAmbiguity ? "yes" : "no")
              << "  ratio threshold " << cfg.ratioThreshold << "\n";
+        cout << "isb       : "
+             << (cfg.estimateISB ? "yes (BDS-3 relative to BDS-2)" : "no") << "\n";
     }
 
     if (!ensureDirectory(outDir)) {
@@ -426,8 +451,8 @@ int main(int argc, char *argv[]) {
     std::map<string, std::set<string>> selectedTypes;
     selectedTypes[mode.system] = mode.rawTypes;
 
-    std::map<string, std::pair<string, string>> dualCodeTypes;
-    dualCodeTypes[mode.system] = mode.codePair;
+    std::map<string, std::vector<std::pair<string, string>>> dualCodeTypes;
+    dualCodeTypes[mode.system] = mode.codePairs;
 
     RinexObsReader readObsRover;
     readObsRover.setFileStream(&roverObsStream);
@@ -441,12 +466,19 @@ int main(int argc, char *argv[]) {
     sppRover.setRinexNavStore(&navStore);
     sppRover.setDualCodeTypes(dualCodeTypes);
     sppRover.setCutOffElev(cfg.cutOffElevation);
+    sppRover.setEstimateISB(cfg.estimateISB);
 
     SPPUCCodePhase sppBase;
     sppBase.setRinexNavStore(&navStore);
     sppBase.setStationAsBase();
     sppBase.setDualCodeTypes(dualCodeTypes);
     sppBase.setCutOffElev(cfg.cutOffElevation);
+    // Set on the base too, though it cannot matter: the base is linearized at
+    // its known position and never solved, and differenceStation() carries only
+    // the rover's coefficients across. It is set so the two stations are
+    // configured identically, which is easier to reason about than an asymmetry
+    // that happens to be harmless.
+    sppBase.setEstimateISB(cfg.estimateISB);
 
     SolverLSQ solverRTK;
 
@@ -488,7 +520,7 @@ int main(int argc, char *argv[]) {
     // thing ratio 0 means when fixing is on: no integer solution was available.
     diagStream << "sod,nRoverEq,nSD,nDD,nUnk,rank,cond,datumSat,datumFallback,"
                   "nSDsats,absDxyz,sigma0,postfitRms,"
-                  "nAmb,ratio,fixed,absDxyzFixed\n";
+                  "nAmb,ratio,fixed,absDxyzFixed,isb\n";
     diagStream << fixed << setprecision(6);
 
     //---------------------------------------------------------------
@@ -645,7 +677,8 @@ int main(int argc, char *argv[]) {
                    << nAmb << ","
                    << ratio << ","
                    << (fixedAccepted ? 1 : 0) << ","
-                   << dxyzFixed.norm() << "\n";
+                   << dxyzFixed.norm() << ","
+                   << stateValue(equSysDD, solverRTK, Parameter::ifb) << "\n";
 
         printSolution(solStream, epoch, xyzRover, xyzRTKFloat);
         if (cfg.fixAmbiguity)
@@ -704,8 +737,15 @@ int main(int argc, char *argv[]) {
         mf << "  \"nav\": \"" << navFile << "\",\n";
         mf << "  \"sys\": \"" << mode.key << "\",\n";
         mf << "  \"sysLabel\": \"" << mode.label << "\",\n";
-        mf << "  \"codePair\": [\"" << mode.codePair.first
-           << "\", \"" << mode.codePair.second << "\"],\n";
+        mf << "  \"isbEstimated\": " << (cfg.estimateISB ? "true" : "false") << ",\n";
+        // A list, because a merged BDS-2 + BDS-3 mode has one pair per
+        // generation. The single-generation modes still write exactly one.
+        mf << "  \"codePairs\": [";
+        for (size_t k = 0; k < mode.codePairs.size(); ++k) {
+            mf << (k ? ", " : "") << "[\"" << mode.codePairs[k].first
+               << "\", \"" << mode.codePairs[k].second << "\"]";
+        }
+        mf << "],\n";
         mf << "  \"rtkFloatOut\": \"" << solFile << "\",\n";
         if (cfg.fixAmbiguity) {
             mf << "  \"rtkFixedOut\": \"" << fixedFile << "\",\n";

@@ -166,17 +166,24 @@ void SPPUCCodePhase::checkDualCodeTypes(ObsData &obsData)  {
     for (auto &stv: obsData.satTypeValueData) {
         string sys = stv.first.system;
         // get type for current system
-        std::pair<string, string> codePair;
-        try {
-            codePair = dualCodeTypes.at(sys);
-        }
-        catch (...) {
+        auto sysIt = dualCodeTypes.find(sys);
+        if (sysIt == dualCodeTypes.end()) {
             satRejectedSet.insert(stv.first);
+            continue;
         }
 
         // 双频非组合观测值，两个频率必须同时存在，否则方程将秩亏
-        if(stv.second.find(codePair.first) ==stv.second.end() ||
-                stv.second.find(codePair.second) ==stv.second.end()) {
+        // A satellite survives if the system's list offers ANY pair it can
+        // satisfy in full - not necessarily the first one. See the note on
+        // dualCodeTypes in the header for why the list has more than one entry.
+        bool complete = false;
+        for (const auto &codePair : sysIt->second) {
+            if (stv.second.count(codePair.first) && stv.second.count(codePair.second)) {
+                complete = true;
+                break;
+            }
+        }
+        if (!complete) {
             satRejectedSet.insert(stv.first);
         }
     }
@@ -256,6 +263,28 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
         varSetTemp.insert(dz);
         varSetTemp.insert(cdt);
 
+        // 北斗二号与三号之间的接收机系统差。两代的信号走不同的接收机通道，
+        // 卫星钟基准也不同，所以这个偏差在跨代的双差里不会抵消。
+        //
+        // 只在 BDS-3 卫星的方程上加它、系数取 1；BDS-2 的方程上系数为 0。
+        // 于是同一个历元内：同代之间双差系数相减为 0（不影响），跨代之间剩
+        // ±1（可估）。真正决定它有没有被消掉的是 differenceSat() 的系数差分，
+        // 那一步必须把它当作坐标那样做差，而不是像模糊度那样原样带过去。
+        //
+        // **只加在伪距方程上，不加在载波相位方程上。** 这不是省事，是必须：
+        // 相位上的系统差与模糊度完全不可分——把一个共享的常数加到全部三代
+        // 卫星的相位方程上，再让每颗星的模糊度各自减去同样的量，方程一个字
+        // 都不变。所以那个参数根本没有可估性，硬加进去只会让它和模糊度强相关。
+        // 实测（零基线全量 7934 历元）：模糊度差分的 ratio 中位数因此从 1453
+        // 掉到 6.5，固定率从 96.7% 掉到 91.6%。只加在伪距上，两者都立刻恢复。
+        // 这与"相位硬件延迟并入模糊度"这个通行约定是同一件事。
+        Variable ifb(obsData.station, Parameter::ifb);
+        const bool useIfb = estimateISB && (bdsGeneration(sat) == 3);
+        if (useIfb)
+        {
+            varSetTemp.insert(ifb);
+        }
+
         // 没在 dualCodeTypes 里配置的系统不形成观测方程。
         // checkDualCodeTypes() 在 solve() 里已经剔除过一轮，这里再挡一次是为了
         // 直接调用 linearize() 时也不至于让下面的 .at() 抛异常。
@@ -268,9 +297,25 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
         // （C1->L1、C2->L2、C7->L7）。与 RinexObsReader/convertObsType 把观测
         // 类型截断成两位的规则一致。于是同一段代码同时支持 GPS 的 C1/C2 和
         // 北斗的 C2/C7（即 B1I/B2I），不必为每个系统复制一份。
-        const std::pair<string, string>& codePair = dualCodeTypes.at(sat.system);
-        const string code1  = codePair.first;
-        const string code2  = codePair.second;
+        //
+        // WHICH pair is per-satellite when the system lists more than one: the
+        // first it can satisfy in full. checkDualCodeTypes() has already
+        // guaranteed that at least one exists; the fallback below only guards a
+        // direct call to linearize().
+        const std::vector<std::pair<string, string>> &pairs = dualCodeTypes.at(sat.system);
+        string code1, code2;
+        bool pairFound = false;
+        for (const auto &codePair : pairs) {
+            if (stv.second.count(codePair.first) && stv.second.count(codePair.second)) {
+                code1 = codePair.first;
+                code2 = codePair.second;
+                pairFound = true;
+                break;
+            }
+        }
+        if (!pairFound) {
+            continue;
+        }
         const string phase1 = "L" + code1.substr(1);
         const string phase2 = "L" + code2.substr(1);
 
@@ -319,6 +364,7 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
                     equSys.obsEquData[equID].varCoeffData[dz] = cosines[2];
                     equSys.obsEquData[equID].varCoeffData[cdt] = 1.0;
                     equSys.obsEquData[equID].varCoeffData[ionoC1G] = 1.0;
+                    if (useIfb) equSys.obsEquData[equID].varCoeffData[ifb] = 1.0;
 
                     // Compute the weight according to elevation
                     double weight;
@@ -362,6 +408,7 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
                     equSys.obsEquData[equID].varCoeffData[dz] = cosines[2];
                     equSys.obsEquData[equID].varCoeffData[cdt] = 1.0;
                     equSys.obsEquData[equID].varCoeffData[ionoC1G] = gamma;
+                    if (useIfb) equSys.obsEquData[equID].varCoeffData[ifb] = 1.0;
 
                     // Compute the weight according to elevation
                     double weight;

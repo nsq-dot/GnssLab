@@ -1437,7 +1437,8 @@ void differenceSat( SatID& datumSat,
             // 系数与未知参数
             VariableDataMap vcDatum = datumEquData.at(currentObsID).varCoeffData;
 
-            // 接收机钟差消除了，只保留了坐标和模糊度参数
+            // 接收机钟差消除了，只保留了坐标、模糊度参数，以及北斗二号/三号
+            // 之间的接收机系统差。
             for(auto vc: ed.second.varCoeffData)
             {
                 if( vc.first.getParaType()==Parameter::dX ||
@@ -1453,6 +1454,54 @@ void differenceSat( SatID& datumSat,
                 {
                     equDataDD[ed.first].varCoeffData[vc.first] = vc.second;
                     varSetDD.insert(vc.first);
+                }
+            }
+
+            //----------------------------------------------------------------
+            // 北斗二号/三号接收机系统差：**与坐标同样处理，做差**，不能像模糊度
+            // 那样原样带过去。
+            //
+            // 双差方程是「本星单差 − 基准星单差」，所以每一项都要跟着做差：本星
+            // 系数 1（BDS-3 卫星）或 0（BDS-2），基准星系数同理，差出来才是
+            // +1 / 0 / −1。若照模糊度那样原样带过去（系数仍取本星的 1），模型就
+            // 少了一个本应对消的常数项，而这个差额会被**模糊度**吸收掉——模糊度
+            // 就不再是整数，LAMBDA 也就无从固定。
+            //
+            // 这一段必须写在上面那个循环**外面**，这一点踩过一次：系统差是本模型
+            // 里唯一「可能只出现在一侧」的参数——BDS-2 卫星的方程里根本没有它。
+            // 循环只遍历本星方程引用到的变量，于是基准星是 BDS-3 时，BDS-2 卫星
+            // 该有的 −1 永远不会被算出来，参数只在一个方向上生效（基准星恰好是
+            // BDS-2 的那 204 个历元）。所以这里取两边系数表的并集。
+            //----------------------------------------------------------------
+            {
+                Variable ifbVar;
+                bool haveIfb = false;
+                double coeffSat = 0.0;
+                double coeffDatum = 0.0;
+
+                for (const auto &vc : ed.second.varCoeffData) {
+                    if (vc.first.getParaType() == Parameter::ifb) {
+                        ifbVar = vc.first;
+                        haveIfb = true;
+                        coeffSat = vc.second;
+                    }
+                }
+                for (const auto &vc : vcDatum) {
+                    if (vc.first.getParaType() == Parameter::ifb) {
+                        if (!haveIfb) {
+                            ifbVar = vc.first;
+                            haveIfb = true;
+                        }
+                        coeffDatum = vc.second;
+                    }
+                }
+
+                const double coeffDiff = coeffSat - coeffDatum;
+                // 同代之间差为 0：不插入未知数表，免得 SolverLSQ 里出现一整列
+                // 全零（法方程因此奇异，inverse() 会给出 inf/nan 而不是报错）。
+                if (haveIfb && coeffDiff != 0.0) {
+                    equDataDD[ed.first].varCoeffData[ifbVar] = coeffDiff;
+                    varSetDD.insert(ifbVar);
                 }
             }
 
@@ -1693,6 +1742,24 @@ void fixSolution(VectorXd& stateVec,
     int numAmb = ambVarSet.size();
     int numXYZT = varSet.size() - numAmb;
 
+    // 下面按「前 numXYZT 个是坐标类、后 numAmb 个是模糊度」分块。这依赖
+    // Variable::operator< 先比参数名，而 Parameter::ambiguity 在这套方程里
+    // 剩下的参数中最大（电离层被删掉、接收机钟差在做差时消掉；北斗两代的
+    // 系统差 ifb 排在模糊度之前，见 Parameter 枚举）。分块错了不会报错，只会
+    // 把坐标当成模糊度去固定，所以这里显式查一遍。
+    {
+        int i = 0;
+        for (auto var : varSet) {
+            const bool isAmb = (var.getParaType() == Parameter::ambiguity);
+            if (isAmb != (i >= numXYZT)) {
+                InvalidRequest e("fixSolution: ambiguities are not the last "
+                                 "block of the unknown set.");
+                throw (e);
+            }
+            i++;
+        }
+    }
+
     // 取出来星间差分模糊度ambVarSetSD的估值和方差，利用lambda方法固定
     VectorXd ambSol;
     MatrixXd ambCov;
@@ -1760,8 +1827,33 @@ void fixSolution(VectorXd& stateVec,
 
     xVecFixed = xVec - Qxb * Qbb.inverse() * (ambSol - ambSolFixed);
 
-    // return fixed solutions
-    dxyzFixed = xVecFixed;
+    // Return the three coordinates, picked out BY PARAMETER TYPE.
+    //
+    // This used to be `dxyzFixed = xVecFixed`, which silently assumed the
+    // non-ambiguity block was exactly the three coordinates. It is not any more:
+    // a mixed BDS-2 + BDS-3 solution also estimates an inter-system bias, which
+    // sorts before the ambiguities (Parameter::ifb < Parameter::ambiguity), so
+    // xVecFixed has four entries and assigning it to a Vector3d is at best a
+    // size mismatch and at worst three wrong numbers.
+    static const Parameter::ParameterName kCoord[3] = {
+        Parameter::dX, Parameter::dY, Parameter::dZ};
+    for (int k = 0; k < 3; k++) {
+        int index = -1;
+        int i = 0;
+        for (auto var : varSet) {
+            if (var.getParaType() == kCoord[k]) {
+                index = i;
+                break;
+            }
+            i++;
+        }
+        if (index < 0 || index >= xVecFixed.size()) {
+            InvalidRequest e("fixSolution: a coordinate parameter is missing "
+                             "from the equation system's unknowns.");
+            throw (e);
+        }
+        dxyzFixed(k) = xVecFixed(index);
+    }
 
 };
 

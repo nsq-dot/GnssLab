@@ -50,6 +50,7 @@ per file). Missing either one is reported and skipped:
 from __future__ import annotations
 
 import argparse
+import csv
 import math
 import os
 import shutil
@@ -129,6 +130,28 @@ def approx_position_of(obs_path: str) -> tuple | None:
 
 def distance(a, b) -> float:
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
+
+
+def read_diag_columns(path: str, names):
+    """Read named columns out of a diagnostics CSV, as a tuple of lists.
+
+    Columns are located by the file's own header, so a column added later does
+    not shift the ones asked for here.
+    """
+    out = {n: [] for n in names}
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
+        reader = csv.DictReader(f)
+        header = [h.strip() for h in (reader.fieldnames or [])]
+        if not all(n in header for n in names):
+            return tuple(None for _ in names)
+        for row in reader:
+            try:
+                for n in names:
+                    out[n].append(float(row[n]))
+            except (TypeError, ValueError):
+                for n in names:
+                    out[n].pop()
+    return tuple(out[n] for n in names)
 
 
 def run_rtk(exe: str, sys_name: str, out_dir: str,
@@ -342,6 +365,66 @@ def main() -> int:
             check(worst <= RTK_SANITY_M,
                   f"{sys_name}: within {RTK_SANITY_M:.0f} m of the base header "
                   f"(worst {worst:.3f} m)  [structural, NOT an anchor]")
+
+    #-----------------------------------------------------------------
+    # The mixed BeiDou solution and its inter-system bias
+    #-----------------------------------------------------------------
+    # Structural, like the BeiDou block above: there is no earlier mixed run to
+    # anchor against. What is checked is that merging the generations is
+    # possible at all (which needs the per-satellite frequency pair), that the
+    # bias column is absent without --isb and present with it, and that the
+    # estimated bias stays at the centimetre level - on this dataset it is about
+    # -12 mm, and a metre would mean the parameter is absorbing something else.
+    print()
+    print("Mixed BDS-2 + BDS-3 - merged solution and the inter-system bias\n")
+    # One output directory per run: they write the same filenames.
+    n_dd = {}
+    isb_col = {}
+    for tag, extra in (("plain", ()), ("isb", ("--isb",))):
+        d = os.path.join(out, "mixed-" + tag)
+        os.makedirs(d, exist_ok=True)
+        label = "bds23" + (" --isb" if extra else "")
+        rm = run_rtk(exe, "bds23", d, *extra)
+        check(rm.returncode == 0, f"{label} exits 0 (got {rm.returncode})")
+        if rm.returncode != 0:
+            print(rm.stdout[-2000:])
+            print(rm.stderr[-2000:], file=sys.stderr)
+            return 1
+
+        rows = parse_solution(os.path.join(d, ROVER + "_bds23_rtk_float.out"))
+        check(len(rows) == EXPECTED_EPOCHS,
+              f"{label}: {len(rows)} epochs (want {EXPECTED_EPOCHS})")
+        if rows:
+            check(all(math.isfinite(v) for _, s, t in rows for v in s + t),
+                  f"{label}: all coordinates finite")
+            if base_pos:
+                worst = max(distance(t, base_pos) for _, _, t in rows)
+                check(worst <= RTK_SANITY_M,
+                      f"{label}: within {RTK_SANITY_M:.0f} m of the base header "
+                      f"(worst {worst:.3f} m)  [structural, NOT an anchor]")
+        n_dd[tag], isb_col[tag] = read_diag_columns(
+            os.path.join(d, ROVER + "_bds23_rtk_diag.csv"), ("nDD", "isb"))
+
+    # Merging must actually merge. A per-satellite frequency pair is what makes
+    # this possible, so an empty or single-generation double-difference system
+    # is exactly the failure this checks for.
+    if n_dd.get("plain"):
+        check(min(n_dd["plain"]) >= 4,
+              f"bds23: every epoch has double differences "
+              f"(min {min(n_dd['plain'])}, max {max(n_dd['plain'])})")
+
+    check(isb_col.get("plain") is not None
+          and all(v == 0.0 for v in isb_col["plain"]),
+          "no inter-system bias is estimated without --isb")
+    nonzero = [v for v in isb_col.get("isb", []) if v != 0.0]
+    check(len(nonzero) > 0,
+          f"the bias IS estimated with --isb ({len(nonzero)} epochs)")
+    if nonzero:
+        worst_isb = max(abs(v) for v in nonzero)
+        check(worst_isb < 0.5,
+              f"every estimated bias is under 0.5 m (worst {worst_isb:.3f} m) - "
+              "a metre here would mean the parameter is absorbing something "
+              "other than the receiver bias")
 
     print()
     if failures:

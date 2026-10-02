@@ -80,6 +80,27 @@ struct SatID {
 
 typedef std::set<SatID> SatIDSet;
 
+/**
+ * BeiDou generation of a satellite: 2, 3, or 0 for anything that is not BeiDou.
+ *
+ * The split is by PRN, and it is a real property of the constellation rather
+ * than a convention invented here: BeiDou-2 occupies C01..C16 and BeiDou-3
+ * C19..C63. Checked against data/Zero-baseline, where the division is visible
+ * in what each satellite broadcasts - the C01..C16 group carries B2I and no
+ * B2a, the C19+ group the other way round.
+ *
+ * This is the field the todo above kept asking for. It is a function rather
+ * than a member of SatID because a member would have to be *set* by whoever
+ * builds each SatID - from a RINEX record, from a configuration file, from a
+ * string - and a field that is sometimes stale is worse than one that is
+ * derived. It is used by the mixed BDS-2 + BDS-3 solution, which needs to know
+ * which satellites share a receiver bias and which do not.
+ */
+inline int bdsGeneration(const SatID &sat) {
+    if (sat.system != "C") return 0;
+    return (sat.id <= 16) ? 2 : 3;
+}
+
 // 为避免因多次包含头文件导致非inline函数多重定义错误，有两种解决方案：
 // 1. 将函数声明为 inline 并在头文件中定义，使得每个包含该头文件的源文件都有函数体副本但不会链接冲突。
 // 2. 在头文件中仅声明函数，在单独的源文件中定义函数，确保整个程序中只有一个函数定义，避免重复定义错误。

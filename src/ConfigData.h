@@ -204,6 +204,21 @@ struct RTKConfigData {
     /// `oem719-...obs.rtk.lsq.out` baseline was produced with it.
     double cutOffElevation;
 
+    /**
+     * Estimate a receiver inter-system bias between the two BeiDou generations.
+     *
+     * Only meaningful with `sys = bds23`, and off by default. The two BeiDou
+     * generations do not share a receiver bias - different signal paths (B2I vs
+     * B2a) and different broadcast clock datums - so a double difference that
+     * spans the two carries a term that a within-generation one does not. With
+     * this off, the solver assumes they do share one, which is exactly the
+     * mistake the exercise is about; with it on, one extra unknown absorbs it.
+     *
+     * See apps/rtk_float.cpp's --isb for what one can measure from the pair of
+     * runs.
+     */
+    bool estimateISB;
+
     // ---- ambiguity fixing ----
     /**
      * Resolve the double-difference ambiguities to integers and write the fixed

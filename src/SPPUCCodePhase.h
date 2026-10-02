@@ -33,12 +33,38 @@ public:
 
     void checkDualCodeTypes(ObsData &obsData);
 
-    void setDualCodeTypes(std::map<string, std::pair<string, string>>& types)
+    void setDualCodeTypes(std::map<string, std::vector<std::pair<string, string>>>& types)
     {
         dualCodeTypes = types;
     };
 
-    std::map<string, std::pair<string, string>> dualCodeTypes;
+    /**
+     * Estimate a receiver inter-system bias between the two BeiDou generations.
+     *
+     * Off by default, which leaves every existing mode exactly as it was. On, a
+     * single extra unknown is added to every observation equation of a BDS-3
+     * satellite (and none of a BDS-2 one); after the station and satellite
+     * differences it survives only where a double difference spans the two
+     * generations, which is precisely the case where the receiver bias fails to
+     * cancel. See the note in apps/rtk_float.cpp's --isb.
+     *
+     * Deliberately a plain flag rather than a set of satellites: what makes the
+     * two groups differ is their generation, and that is a property of the
+     * satellite, not of this solver.
+     */
+    void setEstimateISB(bool on) { estimateISB = on; };
+    bool estimateISB = false;
+
+    /**
+     * Acceptable two-character code pairs per system, tried in order.
+     *
+     * One entry is the ordinary case: every satellite of that system must carry
+     * both codes. More than one entry exists because a mixed BDS-2 + BDS-3
+     * solution has no single pair that covers both generations - they broadcast
+     * different second frequencies - so a satellite takes the first pair it can
+     * satisfy in full.
+     */
+    std::map<string, std::vector<std::pair<string, string>>> dualCodeTypes;
 
 };
 

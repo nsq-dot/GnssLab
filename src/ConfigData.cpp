@@ -249,6 +249,7 @@ RTKConfigData RTKConfigData::defaults() {
 
     // Off, so that the default run stays byte-identical to the original
     // program's output (see the field's comment in ConfigData.h).
+    c.estimateISB = false;
     c.fixAmbiguity = false;
     c.ratioThreshold = 3.0;
 
@@ -271,6 +272,7 @@ RTKConfigData RTKConfigData::fromIni(const std::string &path) {
 
     c.cutOffElevation = reader.getValueAsDoubleOr("cutOffElevation", c.cutOffElevation);
 
+    c.estimateISB = reader.getValueAsBoolOr("estimateISB", c.estimateISB);
     c.fixAmbiguity = reader.getValueAsBoolOr("fixAmbiguity", c.fixAmbiguity);
     c.ratioThreshold = reader.getValueAsDoubleOr("ratioThreshold", c.ratioThreshold);
 

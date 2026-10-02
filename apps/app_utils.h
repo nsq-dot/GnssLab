@@ -152,11 +152,21 @@ inline std::map<string, std::set<string>> cycleSlipObsTypes(bool gps, bool bds) 
  * apart is the point - do not merge them.
  */
 struct RtkMode {
-    string key;                          // "gps" | "bds2" | "bds3"
+    string key;                          // "gps" | "bds2" | "bds3" | "bds23"
     string system;                       // "G" or "C"
     string label;                        // human-readable, for --help and the manifest
     std::set<string> rawTypes;           // 3-char names to select in the RINEX reader
-    std::pair<string, string> codePair;  // 2-char names used by SPPUCCodePhase::dualCodeTypes
+
+    // 2-char names, tried in order; the first pair whose two codes a satellite
+    // actually carries is the one used for it. A single entry means "every
+    // satellite must have these two", which is every mode but the mixed one.
+    //
+    // A list rather than one pair because of the fact chapter 8 keeps running
+    // into: the two BeiDou generations do not broadcast the same second
+    // frequency. BDS-2 has B2I (`C7I`), BDS-3 has B2a (`C5P`), and neither
+    // contains the other - so no single pair covers both, which is why a merged
+    // mode needs somewhere to say "B2I, or failing that B2a".
+    std::vector<std::pair<string, string>> codePairs;
 };
 
 /// Every mode the program accepts, in the order --help lists them.
@@ -168,7 +178,7 @@ inline std::vector<RtkMode> rtkModes() {
     gps.system = "G";
     gps.label = "GPS L1/L2 (C1C+C2W)";
     gps.rawTypes = {"C1C", "C2W", "L1C", "L2W"};
-    gps.codePair = {"C1", "C2"};
+    gps.codePairs = {{"C1", "C2"}};
     m.push_back(gps);
 
     RtkMode bds2;
@@ -176,7 +186,7 @@ inline std::vector<RtkMode> rtkModes() {
     bds2.system = "C";
     bds2.label = "BDS-2 B1I/B2I (C2I+C7I)";
     bds2.rawTypes = {"C2I", "C7I", "L2I", "L7I"};
-    bds2.codePair = {"C2", "C7"};
+    bds2.codePairs = {{"C2", "C7"}};
     m.push_back(bds2);
 
     RtkMode bds3;
@@ -184,8 +194,25 @@ inline std::vector<RtkMode> rtkModes() {
     bds3.system = "C";
     bds3.label = "BDS-3 B1I/B2a (C2I+C5P)";
     bds3.rawTypes = {"C2I", "C5P", "L2I", "L5P"};
-    bds3.codePair = {"C2", "C5"};
+    bds3.codePairs = {{"C2", "C5"}};
     m.push_back(bds3);
+
+    // Both generations in one solution. The exercise that asks for this is
+    // chapter 8's exercise 2, and the reason it is interesting is that they do
+    // NOT share a receiver bias: the code and phase of a BDS-2 satellite and a
+    // BDS-3 one pass through different receiver hardware (and the two
+    // generations' broadcast clocks sit on different datums), so the receiver
+    // term does not cancel in a double difference that spans the two. See
+    // apps/rtk_float.cpp's --isb.
+    RtkMode bds23;
+    bds23.key = "bds23";
+    bds23.system = "C";
+    bds23.label = "BDS-2+BDS-3 B1I/B2I+B2a (C2I+C7I+C5P)";
+    bds23.rawTypes = {"C2I", "C7I", "C5P", "L2I", "L7I", "L5P"};
+    // Order matters: a BDS-2 satellite has B2I and takes the first pair, a
+    // BDS-3 one does not and falls through to B2a.
+    bds23.codePairs = {{"C2", "C7"}, {"C2", "C5"}};
+    m.push_back(bds23);
 
     return m;
 }

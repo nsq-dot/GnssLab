@@ -25,10 +25,31 @@
  * ambiguities across epochs) and to LAMBDA (which makes them integers). Measured
  * here: removing every phase equation leaves the output bit-identical.
  *
+ * ## The fixed solution (`--fix`)
+ *
+ * With `--fix`, each epoch's ambiguities are resolved to integers by MLAMBDA and
+ * the coordinates are corrected with them - the textbook's 8.3.5, equations
+ * (8.50)-(8.63). This is the step that makes the carrier phase pay off: an
+ * integer constraint removes one free parameter per phase equation, so the phase
+ * finally constrains the geometry instead of absorbing it.
+ *
+ * Two things worth knowing before reading the numbers:
+ *
+ *   - A single epoch's float ambiguities are only as good as the pseudorange
+ *     coordinates they are derived from, so their standard deviations run to a
+ *     few tenths of a cycle and many epochs will not pass the ratio test. That
+ *     rate is itself a result; tying the ambiguities across epochs (the
+ *     textbook's Kalman filter, 8.3.4) is what brings it up.
+ *   - When fixing goes wrong the error is the integer slip, in metres - far
+ *     worse than the float solution's centimetres. On the zero baseline, whose
+ *     true answer is exactly zero, that is directly visible, which is why this
+ *     dataset is a good place to measure it.
+ *
  * ## Outputs
  *
  *   <rover>_<sys>_rtk_float.out   one line per epoch, the textbook's format
- *   <rover>_<sys>_rtk_diag.csv    per-epoch conditioning and post-fit diagnostics
+ *   <rover>_<sys>_rtk_fixed.out   the same epochs, fixed, with the ratio - only with --fix
+ *   <rover>_<sys>_rtk_diag.csv    per-epoch conditioning, post-fit and fixing diagnostics
  *   <rover>_manifest.json         what produced the above
  *
  * Usage:
@@ -45,6 +66,8 @@
  *   --out-dir <dir>       Output directory
  *   --stop <ISO8601>      Stop epoch, e.g. 2022-03-03T06:49:00
  *   --sys <mode>          gps | bds2 | bds3  (default: gps)
+ *   --fix                 Resolve the ambiguities and write the fixed solution
+ *   --ratio <x>           Ratio-test threshold (default: 3.0)
  *   --dump-epoch <sod>    Print the double-difference system for one epoch
  *   --verbose             Per-epoch progress on stdout
  *   -h, --help            This message
@@ -104,6 +127,10 @@ void printUsage(const char *prog) {
     for (const RtkMode &m : rtkModes())
         cout << "                       " << left << setw(6) << m.key << " " << m.label << "\n";
     cout <<
+         "  --fix              Resolve ambiguities to integers (MLAMBDA) and\n"
+         "                     write <rover>_<sys>_rtk_fixed.out as well\n"
+         "  --ratio <x>        Ratio-test threshold for accepting a fix, >= 1\n"
+         "                     (default 3.0; implies --fix)\n"
          "  --dump-epoch <sod> Print the double-difference system for one epoch\n"
          "  --verbose          Per-epoch progress\n"
          "  -h, --help         This message\n";
@@ -220,7 +247,9 @@ int main(int argc, char *argv[]) {
     bool haveConfigArg = false;
 
     string optObs, optBaseObs, optNav, optOutDir, optStop, optSys;
+    string optRatio;
     bool optVerbose = false;
+    bool optFix = false;
     double optDumpSod = -1.0;
 
     for (int i = 1; i < argc; ++i) {
@@ -241,6 +270,8 @@ int main(int argc, char *argv[]) {
         else if (a == "--out-dir")    optOutDir = needValue("--out-dir");
         else if (a == "--stop")       optStop = needValue("--stop");
         else if (a == "--sys")        optSys = needValue("--sys");
+        else if (a == "--fix")        optFix = true;
+        else if (a == "--ratio")      optRatio = needValue("--ratio");
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
@@ -294,6 +325,24 @@ int main(int argc, char *argv[]) {
     if (!optOutDir.empty())  cfg.outDir = optOutDir;
     if (!optStop.empty())    cfg.stopUTC = optStop;
     if (!optSys.empty())     cfg.sys = optSys;
+    if (optFix)              cfg.fixAmbiguity = true;
+    if (!optRatio.empty()) {
+        try {
+            cfg.ratioThreshold = std::stod(optRatio);
+        } catch (const std::exception &) {
+            cerr << "Error: --ratio needs a number, got '" << optRatio << "'\n";
+            return 2;
+        }
+        // A fix is accepted when the ratio is strictly greater than this, and
+        // the ratio is a quotient of residual sums of squares, so it is >= 1
+        // whenever a search succeeds. A threshold below 1 would accept every
+        // fix unconditionally; reject it rather than let it look like a result.
+        if (!(cfg.ratioThreshold >= 1.0)) {
+            cerr << "Error: --ratio must be >= 1, got " << cfg.ratioThreshold << "\n";
+            return 2;
+        }
+        cfg.fixAmbiguity = true;
+    }
 
     RtkMode mode;
     if (!findRtkMode(cfg.sys, mode)) {
@@ -318,6 +367,8 @@ int main(int argc, char *argv[]) {
         cout << "sys       : " << mode.key << "  " << mode.label << "\n";
         cout << "stop      : " << (cfg.stopUTC.empty() ? "(end of file)" : cfg.stopUTC) << "\n";
         cout << "cutOff    : " << cfg.cutOffElevation << " deg\n";
+        cout << "fix       : " << (cfg.fixAmbiguity ? "yes" : "no")
+             << "  ratio threshold " << cfg.ratioThreshold << "\n";
     }
 
     if (!ensureDirectory(outDir)) {
@@ -404,6 +455,7 @@ int main(int argc, char *argv[]) {
     //---------------------------------------------------------------
     string obsBase = fileNameOf(roverFile);
     string solFile  = outDir + "/" + obsBase + "_" + mode.key + "_rtk_float.out";
+    string fixedFile = outDir + "/" + obsBase + "_" + mode.key + "_rtk_fixed.out";
     string diagFile = outDir + "/" + obsBase + "_" + mode.key + "_rtk_diag.csv";
 
     std::fstream solStream(solFile, ios::out);
@@ -412,13 +464,31 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // A separate file rather than extra columns on the float one. The float
+    // output is pinned to the original program's output byte for byte by
+    // tests/test_rtk_float_regression.py, so adding to it would break the only
+    // external anchor this chapter has.
+    std::ofstream fixedStream;
+    if (cfg.fixAmbiguity) {
+        fixedStream.open(fixedFile, ios::out | ios::trunc);
+        if (!fixedStream) {
+            cerr << "Error: cannot open fixed solution file: " << fixedFile << "\n";
+            return 1;
+        }
+    }
+
     std::ofstream diagStream(diagFile, ios::trunc);
     if (!diagStream) {
         cerr << "Error: cannot open diagnostics file: " << diagFile << "\n";
         return 1;
     }
+    // The fixing columns are always present so that the header does not depend
+    // on the flags, and so that the Python reader's column-by-name lookup never
+    // has to special-case a run. With fixing off they are 0, which is the same
+    // thing ratio 0 means when fixing is on: no integer solution was available.
     diagStream << "sod,nRoverEq,nSD,nDD,nUnk,rank,cond,datumSat,datumFallback,"
-                  "nSDsats,absDxyz,sigma0,postfitRms\n";
+                  "nSDsats,absDxyz,sigma0,postfitRms,"
+                  "nAmb,ratio,fixed,absDxyzFixed\n";
     diagStream << fixed << setprecision(6);
 
     //---------------------------------------------------------------
@@ -427,6 +497,7 @@ int main(int argc, char *argv[]) {
     long epochCount = 0;
     long skipNoRoverSpp = 0, skipSync = 0, skipNoBaseSpp = 0;
     long skipNoSd = 0, skipNoDd = 0, skipDatumFallback = 0;
+    long fixedEpochs = 0;      // epochs whose ratio cleared the threshold
 
     while (true) {
         ObsData roverData;
@@ -529,6 +600,33 @@ int main(int argc, char *argv[]) {
         Vector3d xyzRover = sppRover.getXYZ();
         Vector3d xyzRTKFloat = xyzRover + dxyzRTK;
 
+        // --- ambiguity resolution --------------------------------------------
+        // Textbook 8.3.5: MLAMBDA on the float solution's ambiguity block, then
+        // the coordinate correction of (8.63). fixSolution() signals failure
+        // through the ratio, not a return code - a ratio of 0 means no integer
+        // candidate exists, and dxyzFixed then comes back equal to the float
+        // increment, so the "fixed" line is simply the float one. Applying the
+        // threshold is the caller's job, which is what `fixed` records.
+        double ratio = 0.0;
+        Vector3d dxyzFixed = dxyzRTK;
+        bool fixedAccepted = false;
+        if (cfg.fixAmbiguity) {
+            VectorXd stateVec = solverRTK.getState();
+            MatrixXd covMatrix = solverRTK.getCovMatrix();
+            VariableDataMap fixedAmbData;
+            fixSolution(stateVec, covMatrix, equSysDD.varSet,
+                        ratio, dxyzFixed, fixedAmbData);
+            fixedAccepted = (ratio > cfg.ratioThreshold);
+            if (fixedAccepted) ++fixedEpochs;
+        }
+        Vector3d xyzRTKFixed = xyzRover + dxyzFixed;
+
+        // Counted from the equation system rather than from fixedAmbData, so
+        // that it is the same number whether fixing ran or not.
+        int nAmb = 0;
+        for (const Variable &v : equSysDD.varSet)
+            if (v.getParaType() == Parameter::ambiguity) ++nAmb;
+
         DdDiag diag = diagnoseDd(equSysDD, solverRTK);
 
         diagStream << sod << ","
@@ -543,9 +641,15 @@ int main(int argc, char *argv[]) {
                    << sdSats.size() << ","
                    << dxyzRTK.norm() << ","
                    << diag.sigma0 << ","
-                   << diag.postfitRms << "\n";
+                   << diag.postfitRms << ","
+                   << nAmb << ","
+                   << ratio << ","
+                   << (fixedAccepted ? 1 : 0) << ","
+                   << dxyzFixed.norm() << "\n";
 
         printSolution(solStream, epoch, xyzRover, xyzRTKFloat);
+        if (cfg.fixAmbiguity)
+            printSolution(fixedStream, epoch, xyzRover, xyzRTKFloat, ratio, xyzRTKFixed);
         ++epochCount;
 
         if (optVerbose)
@@ -553,7 +657,11 @@ int main(int argc, char *argv[]) {
                  << "  dxyz " << dxyzRTK.transpose()
                  << "  n=" << diag.nObs << "/" << diag.nUnk
                  << " rank=" << diag.rank
-                 << " sigma0=" << diag.sigma0 << "\n";
+                 << " sigma0=" << diag.sigma0
+                 << (cfg.fixAmbiguity
+                         ? ("  ratio=" + to_string(ratio) + (fixedAccepted ? " FIXED" : " float"))
+                         : "")
+                 << "\n";
 
         // --- one-epoch dump, for when a number above looks wrong -------------
         if (optDumpSod >= 0.0 && std::fabs(sod - optDumpSod) < 0.5) {
@@ -581,6 +689,7 @@ int main(int argc, char *argv[]) {
     roverObsStream.close();
     baseObsStream.close();
     solStream.close();
+    if (cfg.fixAmbiguity) fixedStream.close();
     diagStream.close();
 
     //---------------------------------------------------------------
@@ -598,6 +707,16 @@ int main(int argc, char *argv[]) {
         mf << "  \"codePair\": [\"" << mode.codePair.first
            << "\", \"" << mode.codePair.second << "\"],\n";
         mf << "  \"rtkFloatOut\": \"" << solFile << "\",\n";
+        if (cfg.fixAmbiguity) {
+            mf << "  \"rtkFixedOut\": \"" << fixedFile << "\",\n";
+            mf << "  \"fixAmbiguity\": true,\n";
+            mf << "  \"ratioThreshold\": " << cfg.ratioThreshold << ",\n";
+            mf << "  \"epochsFixed\": " << fixedEpochs << ",\n";
+            mf << "  \"fixedFraction\": "
+               << (epochCount ? (double) fixedEpochs / (double) epochCount : 0.0) << ",\n";
+        } else {
+            mf << "  \"fixAmbiguity\": false,\n";
+        }
         mf << "  \"rtkDiagOut\": \"" << diagFile << "\",\n";
         mf << "  \"epochs\": " << epochCount << ",\n";
         mf << "  \"epochsSkipped\": "
@@ -622,6 +741,14 @@ int main(int argc, char *argv[]) {
     if (skipNoBaseSpp)       cout << "  base SPP failed        : " << skipNoBaseSpp << "\n";
     if (skipNoSd)            cout << "  too few common sats    : " << skipNoSd << "\n";
     if (skipNoDd)            cout << "  empty double difference: " << skipNoDd << "\n";
+    if (cfg.fixAmbiguity) {
+        cout << "Epochs fixed        : " << fixedEpochs;
+        if (epochCount)
+            cout << "  (" << fixed << setprecision(1)
+                 << (100.0 * (double) fixedEpochs / (double) epochCount) << "%)";
+        cout << "  at ratio > " << cfg.ratioThreshold << "\n";
+        cout << "Fixed      -> " << fixedFile << "\n";
+    }
     cout << "Solution   -> " << solFile << "\n";
     cout << "Diagnostics-> " << diagFile << "\n";
 

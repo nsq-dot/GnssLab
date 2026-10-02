@@ -204,6 +204,40 @@ struct RTKConfigData {
     /// `oem719-...obs.rtk.lsq.out` baseline was produced with it.
     double cutOffElevation;
 
+    // ---- ambiguity fixing ----
+    /**
+     * Resolve the double-difference ambiguities to integers and write the fixed
+     * solution as a second file.
+     *
+     * OFF by default, and that default is load-bearing: with fixing off the
+     * program is exactly what it was, so `oem719-...obs.rtk.lsq.out` - the
+     * output of the original gnssLab-2.2 program, which
+     * tests/test_rtk_float_regression.py asserts byte-for-byte - still means
+     * what it says. The fixed solution goes to its own file rather than adding
+     * columns to that one, for the same reason.
+     *
+     * Note what fixing does and does not change. In the float solution every
+     * phase equation carries a free ambiguity, so the ambiguities absorb the
+     * phase residual exactly and the carrier phase contributes NO information
+     * about position (see docs/rtk.md §3). Constraining them to integers is
+     * what lets the phase finally constrain the geometry - which is the whole
+     * point, and also why a wrongly fixed epoch is much worse than a float one:
+     * the error is the integer slip, in metres, not a few centimetres.
+     */
+    bool fixAmbiguity;
+
+    /**
+     * Ratio-test threshold, the textbook's R_thres in (8.61). A fix is accepted
+     * when squaredRatio is strictly greater than this. The notes suggest 2 or 3
+     * and use 3.
+     *
+     * Only a threshold on a reported number: the fixed coordinate is written
+     * either way, so a caller that wants a guaranteed-good solution must apply
+     * this test itself. The `fixed` column of the diagnostics CSV is that test
+     * already applied.
+     */
+    double ratioThreshold;
+
     /// Values used when no config file is supplied or a key is absent.
     static RTKConfigData defaults();
 

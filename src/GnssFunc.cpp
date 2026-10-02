@@ -1815,7 +1815,7 @@ void ambiguityDatum(bool& firstEpoch,
 };
 
 // print solution to files
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover,
                    Eigen::Vector3d& xyzRTKFloat,
@@ -1834,7 +1834,7 @@ void printSolution(std::fstream & solStream,
 };
 
 // print solution to files
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover,
                    Eigen::Vector3d& xyzRTKFloat)
@@ -1847,7 +1847,7 @@ void printSolution(std::fstream & solStream,
     << " rtk: " << xyzRTKFloat.transpose() << endl;
 };
 
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover)
 {

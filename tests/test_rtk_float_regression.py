@@ -29,6 +29,17 @@ So `spp:` gets a tolerance, generous enough to stay green across compilers and
 tight enough that a real regression - a wrong sign, a dropped satellite, a
 changed mask - still fails. Both facts are asserted rather than one being hidden.
 
+## The `--fix` half
+
+The same dataset makes the fixed solution checkable in a way few datasets allow:
+the zero baseline's true answer is known independently of any solver, because
+both receivers see one antenna. So this test does not merely assert that a fixed
+solution came out - it asserts that it is BETTER than the same epoch's float one,
+and that the float column of the fixed file reproduces the float file exactly.
+
+Both halves need `data/Zero-baseline/`, which is a download, so neither runs in
+CI - see tests/README.md.
+
 Needs `rtk_float` built and data/Zero-baseline/ present (it is gitignored, ~95 MB
 per file). Missing either one is reported and skipped:
 
@@ -120,11 +131,44 @@ def distance(a, b) -> float:
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
 
 
-def run_rtk(exe: str, sys_name: str, out_dir: str) -> subprocess.CompletedProcess:
+def run_rtk(exe: str, sys_name: str, out_dir: str,
+            *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [exe, os.path.join(ROOT, "config", "rtk.ini"),
-         "--sys", sys_name, "--stop", STOP, "--out-dir", out_dir],
+         "--sys", sys_name, "--stop", STOP, "--out-dir", out_dir, *extra],
         cwd=ROOT, capture_output=True, text=True)
+
+
+def parse_fixed_solution(path: str):
+    """Read the `--fix` output: (sod, spp, float, ratio, fixed).
+
+    The layout is the textbook main program's - `spp: X Y Z float-rtk: X Y Z
+    ratio:R fixed-rtk:X Y Z` - and note that `ratio:` and `fixed-rtk:` are glued
+    to their values with no space, exactly as the notes print them. So the
+    fields are located by name rather than by column position.
+    """
+    rows = []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            p = line.split()
+            if not any(t.startswith("fixed-rtk:") for t in p):
+                continue
+            try:
+                i = p.index("spp:")
+                j = p.index("float-rtk:")
+                k = [n for n, t in enumerate(p) if t.startswith("ratio:")][0]
+                m = [n for n, t in enumerate(p) if t.startswith("fixed-rtk:")][0]
+                rows.append((
+                    float(p[2]),
+                    tuple(float(p[i + 1 + n]) for n in range(3)),
+                    tuple(float(p[j + 1 + n]) for n in range(3)),
+                    float(p[k][len("ratio:"):]),
+                    (float(p[m][len("fixed-rtk:"):]),
+                     float(p[m + 1]), float(p[m + 2])),
+                ))
+            except (ValueError, IndexError):
+                continue
+    return rows
 
 
 def main() -> int:
@@ -195,6 +239,76 @@ def main() -> int:
 
     mf = os.path.join(out, ROVER + "_gps_manifest.json")
     check(os.path.isfile(mf), "manifest written")
+
+    # A run without --fix must not write the fixed file at all - not an empty
+    # one. Otherwise "was fixing on?" could not be told from the output.
+    check(not os.path.isfile(os.path.join(out, ROVER + "_gps_rtk_fixed.out")),
+          "no fixed-solution file is written when --fix is off")
+    # The fixing columns are present in the diagnostics either way, so that the
+    # header does not depend on the flags and the Python reader never has to
+    # special-case a run.
+    with open(diag, "r", encoding="utf-8") as f:
+        header = f.readline().strip()
+    check(all(c in header.split(",") for c in ("nAmb", "ratio", "fixed", "absDxyzFixed")),
+          "the diagnostics header carries the fixing columns even with --fix off")
+
+    #-----------------------------------------------------------------
+    # GPS with --fix: float against fixed, on the dataset whose truth is known
+    #-----------------------------------------------------------------
+    # The zero baseline is the only place in the project where the right answer
+    # is known independently of any solver: both receivers see the same antenna,
+    # so the rover's true position is the base's, strictly. That makes it
+    # possible to assert not just that a fixed solution came out but that it is
+    # BETTER, which is the whole claim fixing makes.
+    print()
+    print("GPS with --fix - the fixed solution against the same epoch's float\n")
+    fixdir = os.path.join(out, "fixed")
+    os.makedirs(fixdir, exist_ok=True)
+    rf = run_rtk(exe, "gps", fixdir, "--fix")
+    check(rf.returncode == 0, f"--fix run exits 0 (got {rf.returncode})")
+    if rf.returncode != 0:
+        print(rf.stdout[-2000:])
+        print(rf.stderr[-2000:], file=sys.stderr)
+        return 1
+
+    fixpath = os.path.join(fixdir, ROVER + "_gps_rtk_fixed.out")
+    check(os.path.isfile(fixpath), "fixed-solution file written")
+    if os.path.isfile(fixpath):
+        fx = parse_fixed_solution(fixpath)
+        check(len(fx) == EXPECTED_EPOCHS,
+              f"{len(fx)} epochs in the fixed file (want {EXPECTED_EPOCHS})")
+
+        if fx and got:
+            # The float column of the fixed file must be the float file's rtk:
+            # column - same run, same input, so any difference is a bug in the
+            # writer rather than a numerical one.
+            same = sum(1 for a, b in zip(fx, got)
+                       if all(a[2][i] == b[2][i] for i in range(3)))
+            check(same == len(fx),
+                  f"float-rtk: reproduces the float run's rtk: column on "
+                  f"{same}/{len(fx)} epochs")
+
+        base_pos = approx_position_of(os.path.join(ZERO, BASE))
+        if base_pos and fx:
+            n_fixed = sum(1 for row in fx if row[3] > 3.0)
+            check(n_fixed == len(fx),
+                  f"all {len(fx)} epochs clear ratio > 3 (got {n_fixed})")
+            worst_f = max(distance(row[2], base_pos) for row in fx)
+            worst_x = max(distance(row[4], base_pos) for row in fx)
+            # Measured on this window: float 2.4 m worst, fixed 15 mm. The bound
+            # is loose enough to survive a different build's rounding and still
+            # orders of magnitude tighter than the float solution.
+            check(worst_x <= 0.10,
+                  f"fixed position within 0.10 m of the true position "
+                  f"(worst {worst_x:.4f} m)")
+            check(worst_x < worst_f,
+                  f"fixed beats float on the worst epoch "
+                  f"({worst_x:.4f} m vs {worst_f:.4f} m)")
+
+    # A threshold below 1 would accept every fix unconditionally, which would
+    # look like a result rather than a bug. Refused at the command line.
+    bad = run_rtk(exe, "gps", fixdir, "--ratio", "0.5")
+    check(bad.returncode == 2, f"--ratio 0.5 is rejected (exit {bad.returncode})")
 
     #-----------------------------------------------------------------
     # BeiDou: structural only, and said so

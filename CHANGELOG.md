@@ -37,6 +37,27 @@ Notable changes to this project. The format follows
   differenced, that the receiver clock cancels, that the ambiguity coefficient is
   carried through unchanged while the unknown it multiplies is a difference, and
   that rank deficiency yields a plausible wrong answer rather than an error.
+- **`apps/rtk_float --fix`** — the chapter-8 ambiguity resolution, on the float
+  solution `rtk_float` already produced. MLAMBDA on the ambiguity block of each
+  epoch's double-difference system, then the coordinate correction of the
+  textbook's (8.63). This is what makes the carrier phase pay off: in the float
+  solution each phase equation carries its own free ambiguity, so the
+  ambiguities absorb the phase residual exactly and the phase constrains nothing;
+  constraining them to integers is what lets it constrain the geometry.
+  `--ratio <x>` sets the (8.61) threshold, default 3.0, and implies `--fix`.
+  Output goes to a **separate** `<rover>_<sys>_rtk_fixed.out` in the textbook
+  main program's layout (`spp:` / `float-rtk:` / `ratio:` / `fixed-rtk:`) rather
+  than extra columns on the float file — that file is pinned byte-for-byte to the
+  original program's output, which is the chapter's only external anchor. The
+  diagnostics CSV gains `nAmb`, `ratio`, `fixed` and `absDxyzFixed`; the manifest
+  gains the fixed-file name, the threshold and the fixed-epoch count.
+  Off by default, so a default run is unchanged.
+  Measured on the OEM719 zero baseline (7934 epochs, truth known exactly because
+  both receivers share one antenna): 100% of epochs fixed for GPS and BDS-3,
+  82.1% for BDS-2; **no accepted fix is wrong in any of the three** (worst error
+  34 mm); fixed accuracy 1.1–5.1 mm against 0.076–1.128 m float. The ratio test is
+  what earns that — on BDS-2, discarding it would leave 1322 epochs, 16.7% of the
+  run, sitting on a metre-to-25-metre error.
 - **`examples/exam-8.3-lambda.cpp`, built as `mlambda`** — chapter 8.3.5's
   ambiguity fixing. It was the one chapter-8 exercise source left unbuilt (and
   the only one kept under its upstream file name, so it needed an explicit target

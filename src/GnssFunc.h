@@ -223,7 +223,7 @@ void fixSolution(VectorXd& stateVec,
                  VariableDataMap& fixedAmbData);
 
 // print solution to files
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover,
                    Eigen::Vector3d& xyzRTKFloat,
@@ -231,13 +231,13 @@ void printSolution(std::fstream & solStream,
                    Eigen::Vector3d& xyzRTKFixed);
 
 // print solution to files
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover,
                    Eigen::Vector3d& xyzRTKFloat);
 
 // print solution to files
-void printSolution(std::fstream & solStream,
+void printSolution(std::ostream &solStream,
                    CommonTime& ctTime,
                    Eigen::Vector3d& xyzRover);
 

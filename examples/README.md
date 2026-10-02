@@ -17,6 +17,7 @@ None of them do any file I/O or need a dataset.
 | `ecef_enu_test` | ECEF ↔ geodetic conversion, and satellite elevation/azimuth |
 | `sync_obs` | Epoch alignment between two receivers, including the case where the reference stream has already passed the epoch being sought (chapter 8.4, step 4) |
 | `diff_station` | Between-station and between-satellite differencing: what `differenceStation` and `differenceSat` do to an equation system, and what rank deficiency looks like (chapter 8.3.1–8.3.2) |
+| `mlambda` | MLAMBDA ambiguity resolution and the ratio test (chapter 8.3.5). Three cases: the notes' example 8-1, a ratio that fails the test, and a covariance no search can use |
 
 `sync_obs` and `diff_station` read a small text description of their input from
 standard input, and each falls back to a built-in example when given none — so

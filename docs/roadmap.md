@@ -12,10 +12,13 @@ Stated plainly, because a reader should not have to infer it from the source:
   the accuracy is that of the pseudorange double differences. That is a property
   of the model, not a gap in the implementation - removing every phase equation
   leaves the output bit-identical. See [rtk.md](rtk.md) §3.
-- **No ambiguity fixing.** `ARLambda` and `fixSolution` exist and compile but are
-  not called: `ARLambda::resolve` has **no return statement** on its
-  search-failure path (`src/ARLambda.cpp:26-45`), so it is undefined behaviour
-  exactly in the case that matters most - bad data. Fix that before wiring it up.
+- **No ambiguity fixing** in the RTK solution yet. `ARLambda` is now correct and
+  built (`examples/exam-8.3-lambda.cpp`, target `mlambda`, asserted by
+  `tests/test_lambda_resolve.py`): the missing return on its search-failure path
+  is gone, the two failure paths no longer report success, and the `LOOPMAX`
+  guard actually fires. `fixSolution` still has no caller from `apps/`, so
+  `apps/rtk_float` remains float-only. Wiring it into `rtk_float` is the next
+  step; the module itself is no longer the blocker.
 - **No Kalman filter.** `estimator = 2` parses but is ignored; the solver always
   uses least squares. `src/SPPUCCodePhase.*` is live again (it was removed once
   as unused, and returns as the RTK linearizer).

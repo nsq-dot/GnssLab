@@ -124,6 +124,14 @@ foreach(ex ${GNSS_EXAMPLES})
     target_link_libraries(${ex} PRIVATE gnss)
 endforeach()
 
+# The chapter-8.3 example is the one upstream exercise source that was kept under
+# its original file name, so it cannot go through the loop above (the target
+# name comes from the file stem). Only the target gets a usable name; the file
+# stays exam-8.3-lambda.cpp so its provenance is unchanged. Asserted by
+# tests/test_lambda_resolve.py.
+add_executable(mlambda examples/exam-8.3-lambda.cpp)
+target_link_libraries(mlambda PRIVATE gnss)
+
 # matrix_calculator and parse_opt are self-contained and include nothing from
 # src/, so linking them against the library is unnecessary. Harmless, and it
 # keeps the target definitions uniform.

@@ -23,25 +23,57 @@ using namespace std;
 using namespace Eigen;
 
 
+// Resolves a float ambiguity vector to integers.
+//
+// CONTRACT - the caller distinguishes the two outcomes by isFixed(), never by
+// the returned vector alone:
+//
+//   success : returns the fixed (integer) ambiguities and sets squaredRatio to
+//             the textbook's Ratio, (8.61), the second-smallest over the
+//             smallest residual sum of squares.
+//   failure : returns ambFloat UNCHANGED and sets squaredRatio = 0, so
+//             isFixed() is false. This covers a dimension mismatch, a
+//             covariance that is not positive definite, and a search that runs
+//             out of iterations.
+//
+// The failure path used to have no return statement at all - falling off the
+// end of a non-void function is undefined behaviour - and the two failure modes
+// below it were mis-signalled as successes. Both are worse than they look in
+// RTK: the search's failure branch is the one data with a poor geometry takes,
+// and there the old code reported squaredRatio = 9999.9, i.e. the *least*
+// trustworthy result advertised itself as the most reliable.
 VectorXd ARLambda::resolve(VectorXd &ambFloat,
                            MatrixXd &ambCov) {
+    // Reset first: a failed call must not leave the previous epoch's ratio
+    // behind for isFixed() to pick up.
+    squaredRatio = 0.0;
+
     // Check input
-    if (ambFloat.size() != ambCov.rows() || ambFloat.size() != ambCov.cols()) {
+    if (ambFloat.size() == 0 ||
+        ambFloat.size() != ambCov.rows() ||
+        ambFloat.size() != ambCov.cols()) {
         cout << "The dimension of input does not match." << endl;
         cout << "Cannot perform Ambiguity Resolution!" << endl;
         return ambFloat;
-    } else {
-        MatrixXd F;
-        VectorXd S;
-        if (lambda(ambFloat, ambCov, F, S, 2) == 0) {
-            VectorXd ambFixed = VectorXd::Zero(ambFloat.size());
-            for (int i = 0; i < ambFloat.size(); i++) {
-                ambFixed(i) = F(i, 0);
-            }
-            squaredRatio = (S(0) < 1e-12) ? 9999.9 : S(1) / S(0);
-            return ambFixed;
-        }
     }
+
+    MatrixXd F;
+    VectorXd S;
+    if (lambda(ambFloat, ambCov, F, S, 2) != 0 || S.size() < 2) {
+        // No integer candidate set - see the contract above.
+        return ambFloat;
+    }
+
+    VectorXd ambFixed = VectorXd::Zero(ambFloat.size());
+    for (int i = 0; i < ambFloat.size(); i++) {
+        ambFixed(i) = F(i, 0);
+    }
+
+    // S is sorted ascending by search(), so S(0) is the best candidate and S(1)
+    // the runner-up. When only one candidate was found S(1) stays 0, giving
+    // ratio 0 and hence "not fixed", which is the honest answer.
+    squaredRatio = (S(0) < 1e-12) ? 9999.9 : S(1) / S(0);
+    return ambFixed;
 }
 
 
@@ -146,9 +178,15 @@ int ARLambda::search(MatrixXd &L, VectorXd &D, VectorXd &zs, MatrixXd &zn, Vecto
     double y = zb(k) - z(k);
     step(k) = sign(y);
 
-    int c(0), nn(0), imax(0);
+    int nn(0), imax(0);
     double maxdist = 1E99;
-    for (int c = 0; c < LOOPMAX; c++) {
+    // `c` has to be the same variable the guard below tests. It used to be
+    // redeclared in the for-statement, which shadowed this one, so `c` stayed 0
+    // and `if (c >= LOOPMAX) return -1` could never fire: a search that really
+    // did exhaust its iteration budget returned 0 ("success") carrying whatever
+    // candidates it happened to have.
+    int c = 0;
+    for (c = 0; c < LOOPMAX; c++) {
         double newdist = dist(k) + y * y / D(k);
         if (newdist < maxdist) {
             if (k != 0) {
@@ -202,11 +240,19 @@ int ARLambda::search(MatrixXd &L, VectorXd &D, VectorXd &zs, MatrixXd &zn, Vecto
     return 0;
 }
 
+// 0 on success, -1 on any failure. The caller must check.
+//
+// Every failure used to be swallowed: a non-positive-definite covariance
+// (factorize() != 0) and a search that gave up (search() != 0) both fell
+// through to `return 0` with F never written - F is an uninitialised MatrixXd
+// in the caller - and with `s` left as whatever search() had put there. That is
+// how a failed search came out as ratio 9999.9.
 int ARLambda::lambda(VectorXd &a, MatrixXd &Q, MatrixXd &F, VectorXd &s, const int &m) {
     if ((a.size() != Q.rows()) || (Q.rows() != Q.cols())) return -1;
     if (m < 1) return -1;
 
     const int n = static_cast<int>(a.size());
+    if (n < 1) return -1;
 
     MatrixXd L = MatrixXd::Zero(n, n);
     MatrixXd E = MatrixXd::Zero(n, m);
@@ -215,19 +261,21 @@ int ARLambda::lambda(VectorXd &a, MatrixXd &Q, MatrixXd &F, VectorXd &s, const i
     VectorXd z = VectorXd::Zero(n);
     MatrixXd Z = MatrixXd::Identity(n, n);
 
-    if (factorize(Q, L, D) == 0) {
-        reduction(L, D, Z);
-        z = Z.transpose() * a;
+    // Q = L'*diag(D)*L. Fails when Q is not positive definite, which is what a
+    // rank-deficient or otherwise unusable covariance looks like here.
+    if (factorize(Q, L, D) != 0) return -1;
 
-        if (search(L, D, z, E, s, m) == 0) {
-            try {
-                // F=Z'\E - Z nxn  E nxm F nxm
-                F = (Z.transpose().inverse()) * E;
-            }
-            catch (...) {
-                return -1;
-            }
-        }
+    reduction(L, D, Z);
+    z = Z.transpose() * a;
+
+    if (search(L, D, z, E, s, m) != 0) return -1;
+
+    try {
+        // F=Z'\E - Z nxn  E nxm F nxm
+        F = (Z.transpose().inverse()) * E;
+    }
+    catch (...) {
+        return -1;
     }
 
     return 0;

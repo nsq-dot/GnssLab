@@ -37,6 +37,18 @@ Notable changes to this project. The format follows
   differenced, that the receiver clock cancels, that the ambiguity coefficient is
   carried through unchanged while the unknown it multiplies is a difference, and
   that rank deficiency yields a plausible wrong answer rather than an error.
+- **`examples/exam-8.3-lambda.cpp`, built as `mlambda`** — chapter 8.3.5's
+  ambiguity fixing. It was the one chapter-8 exercise source left unbuilt (and
+  the only one kept under its upstream file name, so it needed an explicit target
+  rather than the `examples/` loop). It resolves three hand-picked float
+  ambiguity vectors: the lecture notes' own example 8-1, which fixes to
+  `[-9 21 -2 4 24 7]` with ratio 6.51682; a case where several integer candidates
+  tie, so the ratio is 1 and `isFixed()` rejects; and a covariance that is not
+  positive definite, where no search is possible and the float vector comes back
+  unchanged with ratio 0. The notes' example is an *external* anchor — the
+  numbers are theirs, not this implementation's.
+- **`tests/test_lambda_resolve.py`**, asserting every number the above prints.
+  Needs no dataset and no other program, so it runs on a bare checkout.
 - **`tests/test_rtk_equations.py`**, which runs on a bare checkout: the difference
   stage is pure linear algebra, so it is driven from hand-built fixtures through
   `examples/diff_station`. And **`tests/test_rtk_float_regression.py`**, which
@@ -136,6 +148,13 @@ Notable changes to this project. The format follows
 
 ### Changed
 
+- **Two CI gaps on the chapter-8 side.** The "all targets were produced" check
+  had drifted: `rtk_float`, `sync_obs` and `diff_station` were built but never
+  checked, so any of them could have silently stopped building. And
+  `tests/test_rtk_equations.py` was written for CI and described as CI coverage
+  when it landed, but the step was never added — it had only ever been run by
+  hand. Both fixed; the new `mlambda` and `test_lambda_resolve.py` are wired in
+  as well.
 - **The MW figures plot cycles, not metres.** `cycleslip.series_view` divides the
   MW combination — and its deviation from the recursive mean — by the wide-lane
   wavelength, so `li` is now the wide-lane ambiguity `N_W = N1 − N2` and the new
@@ -204,6 +223,21 @@ Notable changes to this project. The format follows
 
 ### Fixed
 
+- **`ARLambda` — four defects in MLAMBDA ambiguity resolution, three of them on
+  the failure path.** `resolve()` fell off the end of a non-void function when
+  the integer search failed (`-Wreturn-type`), which is undefined behaviour
+  exactly where bad data leads. Worse, both failure paths were *reported as
+  success*: `lambda()` swallowed `factorize()`'s and `search()`'s error codes and
+  returned 0 with `F` never written, so a caller was handed an all-zero "fixed"
+  solution built from an uninitialised matrix — and, because a failed search
+  leaves its candidate residuals at zero, the ratio came out 9999.9, i.e. the
+  least trustworthy result advertised itself as the most reliable. And the
+  `LOOPMAX` guard never fired at all: `search()`'s loop variable `c` was
+  redeclared in the `for` statement, shadowing the `c` the guard tests, so the
+  out-of-iterations branch was unreachable. Finally, a rank-1 covariance crashed
+  the process outright — Eigen's bounds assertion in a debug build, a bare
+  segfault without it — which is what `resolve()` now handles by returning the
+  float solution unchanged with ratio 0, i.e. `isFixed()` false.
 - **`docs/rtk.md` §四 reported the BDS-3 SPP/RTK ratio as 331×; it is 330×.**
   The ratio is 330.4893, and the console banner prints it to one decimal
   (`330.5x`) — the table had rounded that a second time. Recomputed from the

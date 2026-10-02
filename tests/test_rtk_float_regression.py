@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import os
 import shutil
@@ -425,6 +426,65 @@ def main() -> int:
               f"every estimated bias is under 0.5 m (worst {worst_isb:.3f} m) - "
               "a metre here would mean the parameter is absorbing something "
               "other than the receiver bias")
+
+    #-----------------------------------------------------------------
+    # The Kalman filter, and the cycle-slip coverage it depends on
+    #-----------------------------------------------------------------
+    print()
+    print("Kalman filter - the float solution the filter buys\n")
+    kal_dir = os.path.join(out, "kalman")
+    os.makedirs(kal_dir, exist_ok=True)
+    rk = run_rtk(exe, "gps", kal_dir, "--estimator", "kalman")
+    check(rk.returncode == 0, f"--estimator kalman exits 0 (got {rk.returncode})")
+    if rk.returncode == 0:
+        krows = parse_solution(os.path.join(kal_dir, ROVER + "_gps_rtk_float.out"))
+        check(len(krows) == EXPECTED_EPOCHS,
+              f"kalman: {len(krows)} epochs (want {EXPECTED_EPOCHS})")
+        if krows and got and base_pos:
+            # The whole point of the filter: tying the ambiguities across epochs
+            # is what lets the carrier phase constrain the position, so the FLOAT
+            # solution improves. The fixed solution does not move - both converge
+            # to the same integers - which is why this is asserted on the float
+            # column only. Measured: 2.4 m to 0.04 m worst on this window.
+            worst_l = max(distance(t, base_pos) for _, _, t in got)
+            worst_k = max(distance(t, base_pos) for _, _, t in krows)
+            check(worst_k < worst_l,
+                  f"kalman float beats least-squares float on the worst epoch "
+                  f"({worst_k:.4f} m vs {worst_l:.4f} m)")
+        # The filter's premise is that an ambiguity is constant across epochs,
+        # which needs a slip flag on every one of them.
+        ndd, uncovered = read_diag_columns(
+            os.path.join(kal_dir, ROVER + "_gps_rtk_diag.csv"), ("nDD", "nAmb"))
+        check(ndd is not None, "kalman run wrote diagnostics")
+        with open(os.path.join(kal_dir, ROVER + "_gps_manifest.json"),
+                  "r", encoding="utf-8") as f:
+            kman = json.load(f)
+        check(kman.get("estimator") == "kalman",
+              f"the manifest records the estimator ({kman.get('estimator')})")
+        check(kman.get("csAmbiguitiesWithoutFlag") == 0,
+              "every ambiguity the filter carries has a cycle-slip flag "
+              f"({kman.get('csAmbiguitiesWithoutFlag')} without)")
+
+    # The bands the detectors use have to follow the mode. BeiDou B2a is the case
+    # that forced this: the detectors' default table is B1I/B2I, so before the
+    # band list was settable a `bds3` run produced no flags at all - and a filter
+    # with no flags carries a stale ambiguity across every slip, which is exactly
+    # how the first Kalman run diverged to 14 m at sod 26538.
+    for sysname in ("bds3", "bds23"):
+        d = os.path.join(out, "cs-" + sysname)
+        os.makedirs(d, exist_ok=True)
+        rc2 = subprocess.run(
+            [exe, os.path.join(ROOT, "config", "rtk.ini"), "--sys", sysname,
+             "--dump-cs", "--stop", STOP, "--out-dir", d],
+            cwd=ROOT, capture_output=True, text=True)
+        check(rc2.returncode == 0, f"--sys {sysname} --dump-cs exits 0")
+        m = [f for f in os.listdir(d) if f.endswith("_manifest.json")]
+        if m:
+            with open(os.path.join(d, m[0]), "r", encoding="utf-8") as f:
+                man = json.load(f)
+            check(man.get("csAmbiguitiesWithoutFlag") == 0,
+                  f"{sysname}: every ambiguity has a flag "
+                  f"(bands missing: {man.get('csBandsNotCovered')})")
 
     print()
     if failures:

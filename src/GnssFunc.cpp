@@ -654,6 +654,100 @@ double varOfMW(string, string L1Type, string L2Type) {
     return var;
 };
 
+//----------------------------------------------------------------------------
+// 周跳组合用的频点对。
+//
+// 第 7 章那张表是写死的：GPS L1/L2、北斗 B1I/B2I（RINEX 的 L2/L7）。单代系统
+// 跑没问题，但北斗三号播的是 B2a（L5）不是 B2I，写死的表对 bds3 一颗星都构不
+// 出组合——**不报错，只是整段周跳标志为空**，而滤波器一旦没有周跳标志就会把一
+// 个过期的模糊度一路带下去（见 docs/rtk.md）。
+//
+// 现在允许调用方按系统覆盖成一串候选频点对，取该卫星第一个两个频点都具备的。
+// **没有被覆盖时与原来逐字节一致**，所以第 7 章那几个程序的输出不受影响。
+//----------------------------------------------------------------------------
+static std::map<string, std::vector<std::pair<string, string>>> &cycleSlipBandOverride() {
+    static std::map<string, std::vector<std::pair<string, string>>> bands;
+    return bands;
+}
+
+void setCycleSlipBands(const std::map<string, std::vector<std::pair<string, string>>> &bands) {
+    cycleSlipBandOverride() = bands;
+}
+
+// 选定这颗卫星用于周跳组合的两个频点。false 表示构不出组合，该星判不了。
+static bool pickCycleSlipBands(const SatID &sat,
+                               const TypeValueMap &obs,
+                               string &L1Type, string &L2Type) {
+    const auto &ov = cycleSlipBandOverride();
+    auto it = ov.find(sat.system);
+    if (it != ov.end()) {
+        for (const auto &p : it->second) {
+            if (obs.count(p.first) && obs.count(p.second)) {
+                L1Type = p.first;
+                L2Type = p.second;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 没人覆盖：第 7 章那张表，一字未改。
+    if (sat.system == "G") {
+        L1Type = "L1";
+        L2Type = "L2";
+        return true;
+    }
+    if (sat.system == "C") {
+        L1Type = "L2";
+        L2Type = "L7";
+        return true;
+    }
+    return false;
+}
+
+// 把周跳标志同时写到两个载波的模糊度参数上：MW/GF 都是两个频点的组合，
+// 判出周跳时无法区分落在哪个频点上，只能两个都标。
+static void setGFSlipFlags(const ObsData &obsData, const SatID &sat,
+                           const string &L1Type, const string &L2Type,
+                           std::map<Variable, int> &csFlagData, int status) {
+    Variable amb1(obsData.station, sat,
+                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L1Type));
+    Variable amb2(obsData.station, sat,
+                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L2Type));
+
+    csFlagData[amb1] = status;
+    csFlagData[amb2] = status;
+};
+
+double wavelengthOfGF(string sys, string L1Type, string L2Type) {
+    double f1 = getFreq(sys, L1Type);
+    double f2 = getFreq(sys, L2Type);
+    if (f1 <= 0.0 || f2 <= 0.0)
+        return 0.0;
+
+    // GF 组合的自然尺度是 |λ1-λ2|，即一周周跳在该组合里的最小响应：
+    // GPS L1/L2 为 0.0539 m，BDS B1I/B2I 为 0.0563 m。
+    //
+    // 切勿与 wavelengthOfMW 混用：MW 的 c/(f1-f2) 是 0.862 m，差一个量级。
+    // MW 里 "阈值 = minCycles(2.0) × wavelength" 的写法搬到 GF 上会得到
+    // 0.108 m，是最小周跳的两倍，恰好把最该检出的那批周跳漏掉一半。
+    return std::abs(C_MPS / f1 - C_MPS / f2);
+};
+
+double varOfGF(string sys, string L1Type, string L2Type) {
+    // 两个载波各按 3 mm 相位噪声计，组合噪声 σ=√2·3mm≈4.2mm。
+    //
+    // 返回的是真方差（调用方会 sqrt），而 varOfMW 返回 0.212 却被当方差用，
+    // 量纲是错的——这里不再重复那个写法。
+    (void) sys;
+    (void) L1Type;
+    (void) L2Type;
+
+    const double sigmaCarrier = 0.003;   // m
+    double sigma = std::sqrt(2.0) * sigmaCarrier;
+    return sigma * sigma;
+};
+
 void detectCSMW(ObsData &obsData,
                 std::map<Variable, int> &csFlagData,
                 SatEpochValueMap &satEpochMWData,
@@ -696,17 +790,12 @@ void detectCSMW(ObsData &obsData,
     for (auto stv: obsData.satTypeValueData) {
         SatID sat = (stv).first;
         string L1Type, L2Type, C1Type, C2Type;
-        if (sat.system == "G") {
-            L1Type = "L1";
-            L2Type = "L2";
-            C1Type = "C1";
-            C2Type = "C2";
-        }
-        else if (sat.system == "C") {
-            L1Type = "L2";   // BDS B1I
-            L2Type = "L7";   // BDS B2I
-            C1Type = "C2";   // BDS B1I 伪距
-            C2Type = "C7";   // BDS B2I 伪距
+        // The phase pair comes from the same picker the GF detectors use, so all
+        // three combinations see the same bands. The code pair follows from it:
+        // C2/L2, C7/L7 and so on.
+        if (pickCycleSlipBands(sat, stv.second, L1Type, L2Type)) {
+            C1Type = "C" + L1Type.substr(1);
+            C2Type = "C" + L2Type.substr(1);
         }
         else {
             // 未知系统：无法预置观测值类型，MW 组合构不出来，直接判为坏星。
@@ -859,63 +948,6 @@ const char *csGFStatusName(int status) {
 
 // GF/MW 组合使用的两个载波观测类型。GPS 取 L1/L2；BDS 取 B1I/B2I，
 // 在 RINEX 3 里就是 L2/L7（注意不是 L6——B6 是第三个频点，构不成教材要的 B1I/B2I）。
-static bool gfObsTypes(const SatID &sat, string &L1Type, string &L2Type) {
-    if (sat.system == "G") {
-        L1Type = "L1";
-        L2Type = "L2";
-        return true;
-    }
-    if (sat.system == "C") {
-        L1Type = "L2";
-        L2Type = "L7";
-        return true;
-    }
-    return false;
-};
-
-// 把周跳标志同时写到两个载波的模糊度参数上：MW/GF 都是两个频点的组合，
-// 判出周跳时无法区分落在哪个频点上，只能两个都标。
-static void setGFSlipFlags(const ObsData &obsData, const SatID &sat,
-                           const string &L1Type, const string &L2Type,
-                           std::map<Variable, int> &csFlagData, int status) {
-    Variable amb1(obsData.station, sat,
-                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L1Type));
-    Variable amb2(obsData.station, sat,
-                  static_cast<Parameter>(Parameter::ambiguity), ObsID(sat.system, L2Type));
-
-    csFlagData[amb1] = status;
-    csFlagData[amb2] = status;
-};
-
-double wavelengthOfGF(string sys, string L1Type, string L2Type) {
-    double f1 = getFreq(sys, L1Type);
-    double f2 = getFreq(sys, L2Type);
-    if (f1 <= 0.0 || f2 <= 0.0)
-        return 0.0;
-
-    // GF 组合的自然尺度是 |λ1-λ2|，即一周周跳在该组合里的最小响应：
-    // GPS L1/L2 为 0.0539 m，BDS B1I/B2I 为 0.0563 m。
-    //
-    // 切勿与 wavelengthOfMW 混用：MW 的 c/(f1-f2) 是 0.862 m，差一个量级。
-    // MW 里 "阈值 = minCycles(2.0) × wavelength" 的写法搬到 GF 上会得到
-    // 0.108 m，是最小周跳的两倍，恰好把最该检出的那批周跳漏掉一半。
-    return std::abs(C_MPS / f1 - C_MPS / f2);
-};
-
-double varOfGF(string sys, string L1Type, string L2Type) {
-    // 两个载波各按 3 mm 相位噪声计，组合噪声 σ=√2·3mm≈4.2mm。
-    //
-    // 返回的是真方差（调用方会 sqrt），而 varOfMW 返回 0.212 却被当方差用，
-    // 量纲是错的——这里不再重复那个写法。
-    (void) sys;
-    (void) L1Type;
-    (void) L2Type;
-
-    const double sigmaCarrier = 0.003;   // m
-    double sigma = std::sqrt(2.0) * sigmaCarrier;
-    return sigma * sigma;
-};
-
 void detectCSGFdiff(ObsData &obsData,
                     std::map<Variable, int> &csFlagData,
                     SatEpochValueMap &satEpochGFData,
@@ -959,7 +991,7 @@ void detectCSGFdiff(ObsData &obsData,
         SatID sat = stv.first;
 
         string L1Type, L2Type;
-        if (!gfObsTypes(sat, L1Type, L2Type)) {
+        if (!pickCycleSlipBands(sat, stv.second, L1Type, L2Type)) {
             badSatSet.insert(sat);
             continue;
         }
@@ -1190,7 +1222,7 @@ void detectCSGFpoly(ObsData &obsData,
         SatID sat = stv.first;
 
         string L1Type, L2Type;
-        if (!gfObsTypes(sat, L1Type, L2Type)) {
+        if (!pickCycleSlipBands(sat, stv.second, L1Type, L2Type)) {
             badSatSet.insert(sat);
             continue;
         }

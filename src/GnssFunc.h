@@ -162,6 +162,12 @@ double varOfGF(string sys, string L1Type, string L2Type);
 //               待检的最小周跳，直接设在 |λ1-λ2| 上对恰好这么多周的周跳
 //               只有约一半的检出率。
 // deltaTMax  —— 超过该间隔视为数据中断，只重置不做判定 [s]。
+// 覆盖周跳组合所用的频点对，按系统给一串候选；取该卫星第一个两个频点都具备的。
+// 不调用它时用的是第 7 章那张写死的表（GPS L1/L2、北斗 B1I/B2I），行为逐字节不变。
+// 需要用它的理由只有一个：北斗三号播的是 B2a(B1I/B2a)，写死的表对它一颗星都构不
+// 出组合，于是整段周跳标志为空——而滤波器没有周跳标志就会把过期的模糊度一路带下去。
+void setCycleSlipBands(const std::map<string, std::vector<std::pair<string, string>>> &bands);
+
 void detectCSGFdiff(ObsData &obsData,
                     std::map<Variable, int> &csFlagData,
                     SatEpochValueMap &satEpochGFData,

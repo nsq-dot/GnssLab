@@ -396,6 +396,8 @@ int main(int argc, char *argv[]) {
         return 2;
     }
     const bool useKalman = (cfg.estimator == "kalman");
+    // The filter needs the flags whether or not they were asked for as output.
+    const bool wantCsFlags = useKalman || optDumpCs;
 
     if (optFix)              cfg.fixAmbiguity = true;
     if (!optRatio.empty()) {
@@ -529,6 +531,27 @@ int main(int argc, char *argv[]) {
     // configured identically, which is easier to reason about than an asymmetry
     // that happens to be harmless.
     sppBase.setEstimateISB(cfg.estimateISB);
+
+    // Tell the cycle-slip detectors which bands this mode uses.
+    //
+    // They default to a table written for chapter 7 - GPS L1/L2, BeiDou
+    // B1I/B2I - and that table cannot see B2a, so on `bds3` they would form no
+    // combination for any satellite and every flag would stay zero. That is not
+    // a cosmetic loss: the Kalman filter's premise is that an ambiguity is
+    // constant across epochs, which holds only until a slip, so a mode with no
+    // flags carries a stale ambiguity forever. `bds23` needs the list form for
+    // the same reason the code pairs do: its two generations use different
+    // second frequencies.
+    {
+        std::map<string, std::vector<std::pair<string, string>>> bands;
+        for (const auto &cp : mode.codePairs) {
+            // "C2" -> "L2", "C7" -> "L7": the phase type is the code type with
+            // the leading C swapped for an L, the same rule SPPUCCodePhase uses.
+            bands[mode.system].push_back({"L" + cp.first.substr(1),
+                                          "L" + cp.second.substr(1)});
+        }
+        setCycleSlipBands(bands);
+    }
 
     // Two detectors, one per receiver. They could be one - the detectors' state
     // tables are keyed by (station, satellite) precisely so the two receivers
@@ -678,11 +701,6 @@ int main(int argc, char *argv[]) {
         // notes' own and it is load-bearing: the detectors drop the satellites
         // they cannot form a combination for, so running them first would take
         // those satellites out of the equations as well.
-        // The Kalman filter carries the ambiguities across epochs, which is only
-        // meaningful until a slip - so on that path the flags are not optional.
-        // --dump-cs asks for them on the least-squares path too, to inspect them.
-        const bool wantCsFlags = useKalman || optDumpCs;
-
         VariableDataMap csFlagRover, csFlagBase, csFlagSd;
         if (wantCsFlags) {
             csFlagRover = csDetRover.detect(roverData);
@@ -755,7 +773,7 @@ int main(int argc, char *argv[]) {
         // just summing the flags. The missing keys are collected by name: they
         // are band pairs, and they say exactly which frequencies the detectors
         // cannot see.
-        if (optDumpCs) {
+        if (wantCsFlags) {
             int nCsNonZero = 0, nCsUncovered = 0;
             for (const auto &kv : csFlagSd)
                 if (kv.second != 0.0) ++nCsNonZero;
@@ -770,6 +788,7 @@ int main(int argc, char *argv[]) {
                 ++csEpochsWithSlip;
                 for (const auto &kv : csFlagSd) {
                     if (kv.second == 0.0) continue;
+                    if (!optDumpCs) break;   // counted either way, written only on request
                     csStream << sod << ","
                              << kv.first.getSat().toString() << ","
                              << kv.first.getObsID().satSys << ","
@@ -954,8 +973,10 @@ int main(int argc, char *argv[]) {
         }
         mf << "],\n";
         mf << "  \"rtkFloatOut\": \"" << jsonEscape(solFile) << "\",\n";
-        if (optDumpCs) {
-            mf << "  \"csOut\": \"" << jsonEscape(csFile) << "\",\n";
+        if (wantCsFlags) {
+            if (optDumpCs) {
+                mf << "  \"csOut\": \"" << jsonEscape(csFile) << "\",\n";
+            }
             mf << "  \"csEpochsWithSlip\": " << csEpochsWithSlip << ",\n";
             mf << "  \"csAmbiguityFlags\": " << csFlagTotal << ",\n";
             mf << "  \"csAmbiguitiesWithoutFlag\": " << csUncoveredTotal << ",\n";
@@ -1003,7 +1024,7 @@ int main(int argc, char *argv[]) {
     if (skipNoBaseSpp)       cout << "  base SPP failed        : " << skipNoBaseSpp << "\n";
     if (skipNoSd)            cout << "  too few common sats    : " << skipNoSd << "\n";
     if (skipNoDd)            cout << "  empty double difference: " << skipNoDd << "\n";
-    if (optDumpCs) {
+    if (wantCsFlags) {
         cout << "Cycle-slip flags    : " << csEpochsWithSlip << " epoch(s) with a "
              << "non-zero flag\n";
         if (csUncoveredTotal > 0) {
@@ -1017,7 +1038,7 @@ int main(int argc, char *argv[]) {
         } else {
             cout << "  every double-difference ambiguity carries a flag\n";
         }
-        cout << "Cycle slip -> " << csFile << "\n";
+        if (optDumpCs) cout << "Cycle slip -> " << csFile << "\n";
     }
     if (cfg.fixAmbiguity) {
         cout << "Epochs fixed        : " << fixedEpochs;

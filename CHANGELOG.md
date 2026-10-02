@@ -206,6 +206,19 @@ Notable changes to this project. The format follows
 
 ### Changed
 
+- **The cycle-slip detectors' band pair follows the mode, which is what makes the
+  Kalman filter usable on BeiDou-3.** `gfObsTypes` and `detectCSMW`'s inline
+  table were both hardwired to GPS L1/L2 and BeiDou B1I/B2I, so on `--sys bds3`
+  they formed no combination for any satellite and every flag stayed zero -
+  silently, since a detector that cannot see a band reports nothing rather than
+  failing. `setCycleSlipBands()` now lets the caller give an ordered list of
+  candidate pairs per system and takes the first a satellite actually carries;
+  `rtk_float` derives it from the mode's own frequency pairs.
+  Coverage goes from 0% to 100% on `bds3` and `bds23`, and the Kalman run on
+  `bds3` goes from diverging at sod 26538 to RMSE 17 mm, 100% fixed, no epoch
+  worse than 1 m. Chapter 7 is untouched: with nothing set, the picker returns
+  the same table it always did, and `cs_detect_gf` / `cs_detect_mw`'s output
+  directories are byte-identical.
 - **`apps/rtk_float --estimator kalman`** — the textbook's 8.3.4, wired for the
   first time. `SolverKalman` and `KalmanFilter` had compiled for years without
   ever being called: the only thing that instantiated them was the lecture
@@ -224,15 +237,20 @@ Notable changes to this project. The format follows
   one place the earlier "fixing already gives centimetres, a filter adds
   nothing" conclusion was wrong: fixing gives the accuracy, the filter gives the
   float solution. The fixed solutions are unchanged (1.9 / 5.1 / 1.2 mm).
-  **BDS-3 diverges, and the reason is the cycle-slip gap below.** It tracks to
-  13 mm for 2076 epochs, then jumps to 14 m at sod 26538 and never recovers.
-  The correlation is exact: the two modes that get cycle-slip flags (GPS,
-  BDS-2) improve tenfold and stay stable; the one that gets none (BDS-3, whose
-  band pair the detectors cannot see) is the one that breaks. A filter's whole
-  premise is that an ambiguity is constant across epochs, and that is true only
-  until a slip - so an unfixed detector means a stale ambiguity is carried
-  forever with zero process noise. The least-squares path is immune because it
-  re-estimates every epoch.
+  BDS-3 used to diverge - it tracked to 13 mm for 2076 epochs, then jumped to
+  14 m at sod 26538 and never recovered - and the cause was the cycle-slip gap,
+  not the filter. A filter's whole premise is that an ambiguity is constant
+  across epochs, and that is true only until a slip, so a mode with no flags
+  carries a stale ambiguity forever at zero process noise; the least-squares path
+  re-estimates every epoch and is immune. The correlation across the three modes
+  was exact. Fixing the band pair (above) fixes it completely: bds3 now gives
+  RMSE 17 mm, 100 % fixed and no epoch worse than 1 m. The table above is
+  measured after that fix, and every mode is now honest.
+  Also corrects an earlier claim in the changelog that the filter "adds nothing"
+  because fixing already reaches millimetres. That is true of the FIXED solution
+  and false of the float one: the single-epoch float solution's accuracy is
+  locked to the pseudoranges, and decorrelating the ambiguities across epochs is
+  what unlocks it.
   Off by default, so a default run is unchanged.
 - **The cycle-slip flags the Kalman solver consumes are now produced, and the
   wiring is tested against known slips.** `CSDetector` was the producer half of

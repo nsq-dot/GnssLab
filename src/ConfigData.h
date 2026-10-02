@@ -219,6 +219,28 @@ struct RTKConfigData {
      */
     bool estimateISB;
 
+    /**
+     * Which estimator solves each epoch's double-difference system.
+     *
+     *   "lsq"     ordinary least squares, every epoch independent (default)
+     *   "kalman"  a Kalman filter carrying the ambiguities across epochs
+     *
+     * The two are not interchangeable and do not share a parameterisation.
+     * The least-squares path differences away the reference satellite's
+     * ambiguity, so its ambiguity variables mean "relative to whichever
+     * satellite is the reference this epoch". A filter cannot carry a quantity
+     * whose meaning changes when the reference does, so the Kalman path keeps
+     * the reference satellite's ambiguity as well (giving station-difference
+     * ambiguities, independent of the reference) and removes the resulting rank
+     * deficiency with a constraint equation - the textbook's 8.3.4.3, and what
+     * ambiguityDatum() implements.
+     *
+     * The filter also needs cycle-slip flags, because "constant across epochs"
+     * is only true until a slip. They are produced by CSDetector and are not
+     * optional on this path.
+     */
+    std::string estimator;
+
     // ---- ambiguity fixing ----
     /**
      * Resolve the double-difference ambiguities to integers and write the fixed

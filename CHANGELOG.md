@@ -206,6 +206,34 @@ Notable changes to this project. The format follows
 
 ### Changed
 
+- **`apps/rtk_float --estimator kalman`** — the textbook's 8.3.4, wired for the
+  first time. `SolverKalman` and `KalmanFilter` had compiled for years without
+  ever being called: the only thing that instantiated them was the lecture
+  notes' own program, `examples/exam-8.5-rtk_kal.cpp`, which is not a target.
+  The filter carries the ambiguities across epochs, so it needs the other
+  parameterisation: `differenceSat`'s five-argument overload keeps the reference
+  satellite's ambiguity instead of differencing it away (station-difference
+  ambiguities, whose meaning does not change when the reference satellite does),
+  and `ambiguityDatum()` removes the resulting rank deficiency with a constraint
+  equation. Both had been written and never called. It also needs the cycle-slip
+  flags, so `CSDetector` runs on both receivers on this path whether or not
+  `--dump-cs` was given.
+  What it buys, measured over the zero baseline: the FLOAT solution improves by
+  an order of magnitude - GPS 0.177 -> **0.018 m**, BDS-2 1.128 -> **0.098 m** -
+  which is the textbook's claim about tying ambiguities across epochs, and the
+  one place the earlier "fixing already gives centimetres, a filter adds
+  nothing" conclusion was wrong: fixing gives the accuracy, the filter gives the
+  float solution. The fixed solutions are unchanged (1.9 / 5.1 / 1.2 mm).
+  **BDS-3 diverges, and the reason is the cycle-slip gap below.** It tracks to
+  13 mm for 2076 epochs, then jumps to 14 m at sod 26538 and never recovers.
+  The correlation is exact: the two modes that get cycle-slip flags (GPS,
+  BDS-2) improve tenfold and stay stable; the one that gets none (BDS-3, whose
+  band pair the detectors cannot see) is the one that breaks. A filter's whole
+  premise is that an ambiguity is constant across epochs, and that is true only
+  until a slip - so an unfixed detector means a stale ambiguity is carried
+  forever with zero process noise. The least-squares path is immune because it
+  re-estimates every epoch.
+  Off by default, so a default run is unchanged.
 - **The cycle-slip flags the Kalman solver consumes are now produced, and the
   wiring is tested against known slips.** `CSDetector` was the producer half of
   the chapter-7 -> chapter-8 connection and had never been compiled: the only

@@ -16,7 +16,18 @@
  */
 
 #include "SolverKalman.h"
-#define debug 1
+
+// 诊断默认关闭。这段代码逐历元打印整张 phi / q / P / hMatrix，在零基线那套
+// 1 Hz 数据（约 8000 个历元）上会淹没一切。按 GnssFunc.cpp 的既有做法用
+// -DGNSSLAB_DEBUG_KALMAN=1 按目标打开。只影响 stdout，不参与任何数值计算。
+#ifndef GNSSLAB_DEBUG_KALMAN
+#define GNSSLAB_DEBUG_KALMAN 0
+#endif
+
+// CoordConvert.h 已经给 debug 提供了默认值（它自己的内联函数要用），
+// 必须先撤销再重定义，否则是宏重定义。
+#undef debug
+#define debug GNSSLAB_DEBUG_KALMAN
 
 void SolverKalman::solve(EquSys& equSys, VariableDataMap &csData)
 noexcept(false)
@@ -135,7 +146,6 @@ noexcept(false)
     int ii = 0;
     for(auto var: currentUnkSet)
     {
-        cout << "var:" << var << endl;
 
         // 接收机坐标
         if( var.getParaType() == Parameter::dX ||
@@ -167,8 +177,6 @@ noexcept(false)
                 qMatrix(ii,ii) = 0.0; //??
             }
         }
-        cout << "ii:" << ii << endl;
-        cout << "qMatrix:" << qMatrix(ii,ii) << endl;
         ii++;
     }
 
@@ -195,11 +203,13 @@ noexcept(false)
     kalmanFilter.Reset(xhat, P);
     kalmanFilter.TimeUpdate(phiMatrix, qMatrix);
 
-    cout << "xhatminus" << endl;
-    cout << kalmanFilter.xhatminus << endl;
-
-    cout << "Pminus" << endl;
-    cout << kalmanFilter.Pminus << endl;
+    if(debug)
+    {
+        cout << "xhatminus" << endl;
+        cout << kalmanFilter.xhatminus << endl;
+        cout << "Pminus" << endl;
+        cout << kalmanFilter.Pminus << endl;
+    }
 
     //==================================================
     // 测量更新

@@ -100,6 +100,7 @@
 #include "SPPUCCodePhase.h"
 #include "CSDetector.h"
 #include "SolverLSQ.h"
+#include "SolverKalman.h"
 #include "ConfigData.h"
 #include "ConfigReader.h"
 
@@ -134,6 +135,9 @@ void printUsage(const char *prog) {
          "                     write <rover>_<sys>_rtk_fixed.out as well\n"
          "  --ratio <x>        Ratio-test threshold for accepting a fix, >= 1\n"
          "                     (default 3.0; implies --fix)\n"
+         "  --estimator <e>    lsq (default) or kalman. kalman carries the\n"
+         "                     ambiguities across epochs and needs the cycle-slip\n"
+         "                     flags; it uses the textbook's 8.3.4 parameterisation\n"
          "  --dump-cs          Run the cycle-slip detectors on both receivers and\n"
          "                     report the flags the Kalman solver would consume\n"
          "                     (writes <rover>_<sys>_cs.csv)\n"
@@ -158,7 +162,10 @@ struct DdDiag {
 /// Nothing in the library checks the fit - SolverLSQ::solve computes the state
 /// and stops - so a garbage epoch looks exactly like a good one from the output
 /// file alone. These numbers are what make the difference visible.
-DdDiag diagnoseDd(const EquSys &equSys, const SolverLSQ &solver) {
+///
+/// Takes the state vector rather than a solver, because there are two solvers
+/// now and both expose getState().
+DdDiag diagnoseDd(const EquSys &equSys, const VectorXd &state) {
     DdDiag d;
     d.nObs = (int) equSys.obsEquData.size();
     d.nUnk = (int) equSys.varSet.size();
@@ -190,7 +197,7 @@ DdDiag diagnoseDd(const EquSys &equSys, const SolverLSQ &solver) {
         d.cond = (smin > 0.0) ? smax / smin : std::numeric_limits<double>::infinity();
     }
 
-    const VectorXd &x = solver.getState();
+    const VectorXd &x = state;
     if (x.size() == d.nUnk) {
         d.stateUsable = true;
         VectorXd v = H * x - pre;
@@ -273,9 +280,9 @@ std::string jsonEscape(const std::string &s) {
 /// asked for, minus what the differences removed - so a parameter is looked up
 /// by type rather than by position. Used for the inter-system bias, which is
 /// present only in a mixed solution and only when its column came out non-zero.
-double stateValue(const EquSys &equSys, const SolverLSQ &solver,
+double stateValue(const EquSys &equSys, const VectorXd &state,
                   Parameter::ParameterName type) {
-    const VectorXd x = solver.getState();
+    const VectorXd &x = state;
     int i = 0;
     for (const Variable &v : equSys.varSet) {
         if (v.getParaType() == type)
@@ -300,6 +307,8 @@ int main(int argc, char *argv[]) {
     bool optIsb = false;
     bool optDumpCs = false;
     bool optVerbose = false;
+    // "lsq" (default) or "kalman"; empty means "take it from the config".
+    string optEstimator;
     bool optFix = false;
     double optDumpSod = -1.0;
 
@@ -323,6 +332,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--sys")        optSys = needValue("--sys");
         else if (a == "--isb")        optIsb = true;
         else if (a == "--dump-cs")    optDumpCs = true;
+        else if (a == "--estimator")  optEstimator = needValue("--estimator");
         else if (a == "--fix")        optFix = true;
         else if (a == "--ratio")      optRatio = needValue("--ratio");
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
@@ -379,6 +389,14 @@ int main(int argc, char *argv[]) {
     if (!optStop.empty())    cfg.stopUTC = optStop;
     if (!optSys.empty())     cfg.sys = optSys;
     if (optIsb)              cfg.estimateISB = true;
+    if (!optEstimator.empty()) cfg.estimator = optEstimator;
+    if (cfg.estimator != "lsq" && cfg.estimator != "kalman") {
+        cerr << "Error: estimator must be 'lsq' or 'kalman', got '"
+             << cfg.estimator << "'\n";
+        return 2;
+    }
+    const bool useKalman = (cfg.estimator == "kalman");
+
     if (optFix)              cfg.fixAmbiguity = true;
     if (!optRatio.empty()) {
         try {
@@ -423,6 +441,7 @@ int main(int argc, char *argv[]) {
         cout << "cutOff    : " << cfg.cutOffElevation << " deg\n";
         cout << "fix       : " << (cfg.fixAmbiguity ? "yes" : "no")
              << "  ratio threshold " << cfg.ratioThreshold << "\n";
+        cout << "estimator : " << cfg.estimator << "\n";
         cout << "isb       : "
              << (cfg.estimateISB ? "yes (BDS-3 relative to BDS-2)" : "no") << "\n";
     }
@@ -519,6 +538,15 @@ int main(int argc, char *argv[]) {
     CSDetector csDetBase;
 
     SolverLSQ solverRTK;
+
+    // The Kalman path's state. `kalmanFixedAmb` is the previous epoch's fixed
+    // ambiguity map, which ambiguityDatum() turns into the next epoch's
+    // reference-satellite constraint; `kalmanFirstEpoch` selects the first-epoch
+    // form of that constraint - pin the reference to zero, since there is no
+    // previous value to pin it to.
+    SolverKalman solverKal;
+    VariableDataMap kalmanFixedAmb;
+    bool kalmanFirstEpoch = true;
 
     //---------------------------------------------------------------
     // Output files
@@ -650,15 +678,20 @@ int main(int argc, char *argv[]) {
         // notes' own and it is load-bearing: the detectors drop the satellites
         // they cannot form a combination for, so running them first would take
         // those satellites out of the equations as well.
+        // The Kalman filter carries the ambiguities across epochs, which is only
+        // meaningful until a slip - so on that path the flags are not optional.
+        // --dump-cs asks for them on the least-squares path too, to inspect them.
+        const bool wantCsFlags = useKalman || optDumpCs;
+
         VariableDataMap csFlagRover, csFlagBase, csFlagSd;
-        if (optDumpCs) {
+        if (wantCsFlags) {
             csFlagRover = csDetRover.detect(roverData);
             csFlagBase  = csDetBase.detect(baseData);
         }
 
         // --- between stations ------------------------------------------------
         EquSys equSysSD;
-        if (optDumpCs) {
+        if (wantCsFlags) {
             // The flag-carrying overload: the same equation system (it calls
             // the three-argument one internally) plus the two receivers' slip
             // flags merged into a single map keyed by ambiguity variable.
@@ -687,7 +720,23 @@ int main(int argc, char *argv[]) {
         if (datumFallback) ++skipDatumFallback;
 
         EquSys equSysDD;
-        differenceSat(datumSat, equSysSD, equSysDD);
+        VariableDataMap csFlagDd;
+        if (useKalman) {
+            // The five-argument overload, and the reason the Kalman path cannot
+            // use the three-argument one: it KEEPS the reference satellite's
+            // ambiguity (with coefficient -lambda) instead of differencing it
+            // away, so the ambiguity variables are station-difference
+            // ambiguities whose meaning does not depend on which satellite is
+            // the reference. A filter has to carry them across epochs, and the
+            // reference changes two or three times per run.
+            //
+            // The price is one rank deficiency, which the textbook removes with
+            // a constraint equation (8.3.4.3) - that is ambiguityDatum(), and it
+            // must be added before the solve.
+            differenceSat(datumSat, equSysSD, csFlagSd, equSysDD, csFlagDd);
+        } else {
+            differenceSat(datumSat, equSysSD, equSysDD);
+        }
 
         if (equSysDD.obsEquData.empty() || equSysDD.varSet.size() < 3) {
             ++skipNoDd;
@@ -733,8 +782,30 @@ int main(int argc, char *argv[]) {
         }
 
         // --- solve -----------------------------------------------------------
+        // One state vector and one covariance from here on, whichever solver
+        // ran: the diagnostics, the inter-system bias lookup and fixSolution()
+        // all work off these two, and neither needs to know which produced them.
+        VectorXd stateVec;
+        MatrixXd covMatrix;
+        Vector3d dxyzRTK;
         try {
-            solverRTK.solve(equSysDD);
+            if (useKalman) {
+                // The reference ambiguity constraint, from this epoch's own
+                // reference satellite. On the first epoch it pins it to zero;
+                // afterwards it pins the new reference to the value the previous
+                // epoch fixed it to, which is what keeps the ambiguity set
+                // continuous when the reference satellite changes.
+                ambiguityDatum(kalmanFirstEpoch, datumSat, kalmanFixedAmb, equSysDD);
+                solverKal.solve(equSysDD, csFlagDd);
+                stateVec = solverKal.getState();
+                covMatrix = solverKal.getCovMatrix();
+                dxyzRTK = solverKal.getdxyz();
+            } else {
+                solverRTK.solve(equSysDD);
+                stateVec = solverRTK.getState();
+                covMatrix = solverRTK.getCovMatrix();
+                dxyzRTK = solverRTK.getdxyz();
+            }
         }
         catch (std::exception &e) {
             ++skipNoDd;
@@ -742,8 +813,6 @@ int main(int argc, char *argv[]) {
                 cout << "[skip] sod " << sod << " DD solve: " << e.what() << "\n";
             continue;
         }
-
-        Vector3d dxyzRTK = solverRTK.getdxyz();
         Vector3d xyzRover = sppRover.getXYZ();
         Vector3d xyzRTKFloat = xyzRover + dxyzRTK;
 
@@ -758,13 +827,16 @@ int main(int argc, char *argv[]) {
         Vector3d dxyzFixed = dxyzRTK;
         bool fixedAccepted = false;
         if (cfg.fixAmbiguity) {
-            VectorXd stateVec = solverRTK.getState();
-            MatrixXd covMatrix = solverRTK.getCovMatrix();
-            VariableDataMap fixedAmbData;
+            // fixSolution() writes only the ambiguity map it was given, so the
+            // previous epoch's map is copied first and then updated in place.
+            // The Kalman path needs it to persist: the reference-satellite
+            // constraint of the NEXT epoch is built from this epoch's fix.
+            VariableDataMap fixedAmbData = kalmanFixedAmb;
             fixSolution(stateVec, covMatrix, equSysDD.varSet,
                         ratio, dxyzFixed, fixedAmbData);
             fixedAccepted = (ratio > cfg.ratioThreshold);
             if (fixedAccepted) ++fixedEpochs;
+            if (useKalman) kalmanFixedAmb = fixedAmbData;
         }
         Vector3d xyzRTKFixed = xyzRover + dxyzFixed;
 
@@ -774,7 +846,7 @@ int main(int argc, char *argv[]) {
         for (const Variable &v : equSysDD.varSet)
             if (v.getParaType() == Parameter::ambiguity) ++nAmb;
 
-        DdDiag diag = diagnoseDd(equSysDD, solverRTK);
+        DdDiag diag = diagnoseDd(equSysDD, stateVec);
 
         diagStream << sod << ","
                    << equSysRover.obsEquData.size() << ","
@@ -793,12 +865,15 @@ int main(int argc, char *argv[]) {
                    << ratio << ","
                    << (fixedAccepted ? 1 : 0) << ","
                    << dxyzFixed.norm() << ","
-                   << stateValue(equSysDD, solverRTK, Parameter::ifb) << "\n";
+                   << stateValue(equSysDD, stateVec, Parameter::ifb) << "\n";
 
         printSolution(solStream, epoch, xyzRover, xyzRTKFloat);
         if (cfg.fixAmbiguity)
             printSolution(fixedStream, epoch, xyzRover, xyzRTKFloat, ratio, xyzRTKFixed);
         ++epochCount;
+        // From the second solved epoch on, ambiguityDatum() pins the reference
+        // ambiguity to the previous epoch's fixed value instead of to zero.
+        kalmanFirstEpoch = false;
 
         if (optVerbose)
             cout << "[rtk] sod " << sod
@@ -841,7 +916,7 @@ int main(int argc, char *argv[]) {
                              << (csFlagSd.count(v) ? "   <- has a flag" : "   <- NO FLAG")
                              << "\n";
             }
-            cout << "state: " << solverRTK.getState().transpose() << "\n";
+            cout << "state: " << stateVec.transpose() << "\n";
             cout << "sigma0 " << diag.sigma0 << "  postfit rms " << diag.postfitRms << "\n\n";
         }
 
@@ -868,6 +943,7 @@ int main(int argc, char *argv[]) {
         mf << "  \"nav\": \"" << jsonEscape(navFile) << "\",\n";
         mf << "  \"sys\": \"" << jsonEscape(mode.key) << "\",\n";
         mf << "  \"sysLabel\": \"" << jsonEscape(mode.label) << "\",\n";
+        mf << "  \"estimator\": \"" << jsonEscape(cfg.estimator) << "\",\n";
         mf << "  \"isbEstimated\": " << (cfg.estimateISB ? "true" : "false") << ",\n";
         // A list, because a merged BDS-2 + BDS-3 mode has one pair per
         // generation. The single-generation modes still write exactly one.

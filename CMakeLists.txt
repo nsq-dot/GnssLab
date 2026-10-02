@@ -97,7 +97,7 @@ set(GNSS_APPS
         bds_gps_diff      # broadcast vs precise orbit/clock, full constellation
         cs_detect_mw      # Melbourne-Wübbena cycle-slip detection
         cs_detect_gf      # geometry-free cycle-slip detection (diff + polynomial)
-        rtk_float         # RTK single-epoch least-squares float solution
+        rtk               # RTK relative positioning: least squares or Kalman
         matrix_calculator # Eigen matrix calculator
 )
 

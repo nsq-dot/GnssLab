@@ -19,7 +19,7 @@
  *
  * Being honest about the gap: this does NOT exercise the file-position handling,
  * because doing so needs two RINEX files and examples/ is documented as needing
- * no dataset. The end-to-end path is covered instead by apps/rtk_float, which
+ * no dataset. The end-to-end path is covered instead by apps/rtk, which
  * synchronises against the base file on every epoch it processes.
  *
  * Usage:

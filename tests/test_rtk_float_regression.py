@@ -40,7 +40,7 @@ and that the float column of the fixed file reproduces the float file exactly.
 Both halves need `data/Zero-baseline/`, which is a download, so neither runs in
 CI - see tests/README.md.
 
-Needs `rtk_float` built and data/Zero-baseline/ present (it is gitignored, ~95 MB
+Needs `rtk` built and data/Zero-baseline/ present (it is gitignored, ~95 MB
 per file). Missing either one is reported and skipped:
 
     python tests/test_rtk_float_regression.py
@@ -201,9 +201,9 @@ def main() -> int:
                     help="fail (not skip) when the binary or data is missing")
     args = ap.parse_args()
 
-    exe = find_exe("rtk_float")
+    exe = find_exe("rtk")
     if not exe:
-        print("SKIP  rtk_float not built - run `gnss build` (or cmake --build build)")
+        print("SKIP  rtk not built - run `gnss build` (or cmake --build build)")
         return 1 if args.required else 0
 
     needed = [os.path.join(ZERO, n) for n in (ROVER, BASE, ANCHOR)]
@@ -228,7 +228,7 @@ def main() -> int:
     if r.returncode != 0:
         print(r.stdout[-2000:])
         print(r.stderr[-2000:], file=sys.stderr)
-        check(False, f"rtk_float exited {r.returncode}")
+        check(False, f"rtk exited {r.returncode}")
         return 1
 
     got_path = os.path.join(out, ROVER + "_gps_rtk_float.out")
@@ -349,7 +349,7 @@ def main() -> int:
         for sys_name in ("bds2", "bds3"):
             r = run_rtk(exe, sys_name, out)
             if r.returncode != 0:
-                check(False, f"{sys_name}: rtk_float exited {r.returncode}")
+                check(False, f"{sys_name}: rtk exited {r.returncode}")
                 continue
             path = os.path.join(out, f"{ROVER}_{sys_name}_rtk_float.out")
             if not os.path.isfile(path):

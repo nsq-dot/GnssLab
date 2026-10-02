@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """The cycle-slip flags the Kalman solver consumes, checked against known slips.
 
-``apps/rtk_float --dump-cs`` runs the chapter-7 detectors on both receivers,
+``apps/rtk --dump-cs`` runs the chapter-7 detectors on both receivers,
 merges them through the flag-carrying ``differenceStation`` overload, and writes
 the flags keyed by the ambiguity variables the filter carries. This test is what
 says that wiring works end to end - the keys reach the ambiguity variables, and
@@ -27,7 +27,7 @@ slips of its own - chapter 7 measured several satellites with hundreds - and the
 injected truth knows nothing about them. So the extra flags are reported, not
 asserted against; only their overall rate is bounded, loosely.
 
-Needs `rtk_float` built and data/Zero-baseline/ present (gitignored, ~95 MB per
+Needs `rtk` built and data/Zero-baseline/ present (gitignored, ~95 MB per
 file), so like the other RTK tests it does not run in CI:
 
     python tests/test_rtk_cycle_slips.py
@@ -82,9 +82,9 @@ def main() -> int:
                     help="fail (not skip) when the binary or data is missing")
     args = ap.parse_args()
 
-    exe = find_exe("rtk_float")
+    exe = find_exe("rtk")
     if not exe:
-        print("SKIP  rtk_float not built - run `gnss build` (or cmake --build build)")
+        print("SKIP  rtk not built - run `gnss build` (or cmake --build build)")
         return 1 if args.required else 0
 
     needed = [os.path.join(ZERO, n) for n in (ROVER, BASE, NAV)]
@@ -128,7 +128,7 @@ def main() -> int:
         [exe, os.path.join(ROOT, "config", "rtk.ini"), "--sys", "gps",
          "--dump-cs", "--obs", injected, "--out-dir", run_dir],
         cwd=ROOT, capture_output=True, text=True)
-    check(r.returncode == 0, f"rtk_float --dump-cs exits 0 (got {r.returncode})")
+    check(r.returncode == 0, f"rtk --dump-cs exits 0 (got {r.returncode})")
     if r.returncode != 0:
         print(r.stdout[-2000:])
         print(r.stderr[-2000:], file=sys.stderr)

@@ -47,7 +47,7 @@ jobs:
       - name: Check all targets were produced
         run: |
           expected="spp_if system_bias read_rinex bds_eph bds_gps_diff cs_detect_mw cs_detect_gf matrix_calculator
-                    rtk_float mlambda
+                    rtk mlambda
                     parse_opt parse_config gpst_to_utc bdweek_to_commontime jd2020_test ecef_enu_test
                     sync_obs diff_station"
           missing=0

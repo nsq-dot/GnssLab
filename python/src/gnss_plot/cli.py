@@ -43,10 +43,10 @@ AUX_APPS = {
     "cs-detect-mw": "cs_detect_mw",
     "cs-detect-gf": "cs_detect_gf",
     "matrix": "matrix_calculator",
-    "rtk-float": "rtk_float",
+    "rtk": "rtk",
 }
 
-# The constellations `apps/rtk_float.cpp` has a mode for, for `rtk-plot --sys`.
+# The constellations `apps/rtk.cpp` has a mode for, for `rtk-plot --sys`.
 # A copy of gnss_plot.rtk.MODES rather than an import: the parser is built for
 # every subcommand, and reaching into the analysis module here would pull numpy
 # in before `gnss build` - which needs neither - can run. Same reason the string
@@ -727,7 +727,7 @@ def cmd_cs_plot(args) -> int:
 def cmd_rtk_plot(args) -> int:
     """Plot the chapter-8 RTK float accuracy output.
 
-    Reads existing ``apps/rtk_float`` output; it does not run the solver. One
+    Reads existing ``apps/rtk`` output; it does not run the solver. One
     run per constellation is chosen from the output tree, scored against the
     base station's header coordinate, printed as a table, and drawn as three
     figures.
@@ -752,13 +752,13 @@ def cmd_rtk_plot(args) -> int:
         found = rtk.runs_from_outputs([
             p if os.path.isabs(p) else os.path.join(root, p) for p in args.rtk_out])
     else:
-        # Default to output/rtk, which is where apps/rtk_float.cpp writes; the
+        # Default to output/rtk, which is where apps/rtk.cpp writes; the
         # search is recursive so a tree that keeps its full runs one level down
         # (output/rtk/full) is found too.
         rtk_dir = _resolve_out_dir(root, args.out_dir or os.path.join("output", "rtk"))
         if not os.path.isdir(rtk_dir):
             return _fail(f"no RTK output under {rtk_dir}\n"
-                         "  Run 'gnss app rtk-float' first - see docs/rtk.md.")
+                         "  Run 'gnss app rtk' first - see docs/rtk.md.")
         found = rtk.find_runs(rtk_dir)
 
     if not found:

@@ -214,7 +214,7 @@ struct RTKConfigData {
      * this off, the solver assumes they do share one, which is exactly the
      * mistake the exercise is about; with it on, one extra unknown absorbs it.
      *
-     * See apps/rtk_float.cpp's --isb for what one can measure from the pair of
+     * See apps/rtk.cpp's --isb for what one can measure from the pair of
      * runs.
      */
     bool estimateISB;

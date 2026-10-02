@@ -183,8 +183,8 @@ that frame, and because the two frames' three values square-sum to the same
 total (the trace of a covariance is rotation-invariant) — so the ENU and ECEF
 rows are the same two numbers split differently, not two measurements.
 
-Reads existing `apps/rtk_float` output — it does not run the solver; use
-`gnss app rtk-float` for that. See [rtk.md](rtk.md) for the analysis.
+Reads existing `apps/rtk` output — it does not run the solver; use
+`gnss app rtk` for that. See [rtk.md](rtk.md) for the analysis.
 
 ```bash
 # what produced docs/figures/vis_rtk_*.png
@@ -217,7 +217,7 @@ has not".
 ## app
 
 ```
-gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | cs-detect-gf | matrix | rtk-float
+gnss app bds-eph | bds-gps-diff | read-rinex | system-bias | cs-detect-mw | cs-detect-gf | matrix | rtk
 ```
 
 Runs the corresponding binary from `build/bin/` with the working directory set
@@ -225,7 +225,7 @@ to the project root, so its relative paths resolve correctly. Options are passed
 through verbatim after the program name:
 
 ```bash
-gnss app rtk-float config/rtk.ini --sys bds3
+gnss app rtk config/rtk.ini --sys bds3
 ```
 
 All of these except `matrix` take `[config.ini] [options]` rather than running

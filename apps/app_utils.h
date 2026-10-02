@@ -203,7 +203,7 @@ inline std::vector<RtkMode> rtkModes() {
     // BDS-3 one pass through different receiver hardware (and the two
     // generations' broadcast clocks sit on different datums), so the receiver
     // term does not cancel in a double difference that spans the two. See
-    // apps/rtk_float.cpp's --isb.
+    // apps/rtk.cpp's --isb.
     RtkMode bds23;
     bds23.key = "bds23";
     bds23.system = "C";

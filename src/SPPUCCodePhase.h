@@ -46,7 +46,7 @@ public:
      * satellite (and none of a BDS-2 one); after the station and satellite
      * differences it survives only where a double difference spans the two
      * generations, which is precisely the case where the receiver bias fails to
-     * cancel. See the note in apps/rtk_float.cpp's --isb.
+     * cancel. See the note in apps/rtk.cpp's --isb.
      *
      * Deliberately a plain flag rather than a set of satellites: what makes the
      * two groups differ is their generation, and that is a property of the

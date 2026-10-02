@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """RTK float accuracy: reading a run, rotating it into ENU, and scoring it.
 
-Chapter 8's program, ``apps/rtk_float.cpp``, writes three files per
+Chapter 8's program, ``apps/rtk.cpp``, writes three files per
 constellation into one output directory::
 
     <rover>_<sys>_rtk_float.out    one line per epoch: the SPP and the RTK XYZ
@@ -73,7 +73,7 @@ __all__ = [
     "report",
 ]
 
-#: The constellations ``apps/rtk_float.cpp`` has a mode for, in the order the
+#: The constellations ``apps/rtk.cpp`` has a mode for, in the order the
 #: tables and figures draw them. Anything else found on disk is still read, but
 #: sorts after these and falls back to its own name as a label.
 MODES = ("gps", "bds2", "bds3")

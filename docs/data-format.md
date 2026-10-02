@@ -98,7 +98,7 @@ files.
 
 ## `<obsFileName>_<sys>_rtk_float.out` — RTK float solution
 
-Written by `apps/rtk_float.cpp`, one line per epoch, in the format the textbook
+Written by `apps/rtk.cpp`, one line per epoch, in the format the textbook
 uses:
 
 ```
@@ -137,7 +137,7 @@ zero-baseline set the two known outliers have `sigma0` 20–30× the median; see
 
 `datumFallback` is 1 when the reference satellite had to be taken from the
 between-station system rather than from the rover's own highest-elevation
-satellite (see `pickDatumSat` in `apps/rtk_float.cpp`). It is 0 on every epoch of
+satellite (see `pickDatumSat` in `apps/rtk.cpp`). It is 0 on every epoch of
 the shipped dataset.
 
 ## Naming

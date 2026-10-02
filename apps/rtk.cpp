@@ -3,15 +3,29 @@
  *  This software is licensed under the Mulan Permissive Software License, Version 2 (MulanPSL-2.0).
  *  You may obtain a copy of the License at:http://license.coscl.org.cn/MulanPSL2
  *
- * RTK: single-epoch least-squares FLOAT solution.
+ * RTK: carrier-phase relative positioning, chapter 8 of the lecture notes.
  *
- * Textbook chapter 8, exercise 1 ("撰写基于最小二乘的 RTK 定位浮点解，并比较 GPS RTK
- * 定位和 BDS RTK 定位精度"). Each epoch is solved independently: both receivers are
- * linearized at their own approximate position with SPPUCCodePhase, the two
- * equation systems are differenced between stations and then between satellites,
- * and the resulting double-difference system is solved by ordinary least squares.
- * Ambiguities stay real-valued - nothing is fixed to an integer, and nothing is
- * carried across epochs.
+ * Both exercises and the chapter's main program live here rather than in three
+ * programs, because they differ in one or two steps of a pipeline that is
+ * otherwise identical (read two receivers, linearize, difference, solve, fix):
+ *
+ *   the default      single-epoch least-squares FLOAT solution  (exercise 1)
+ *   --fix            integer ambiguity resolution, MLAMBDA      (exercise 2)
+ *   --estimator kalman  ambiguities carried across epochs       (8.3.4 / 8.5)
+ *   --sys bds23 --isb   the two BeiDou generations in one solution
+ *
+ * The name is plain `rtk` for that reason. It used to be `rtk_float`, which was
+ * accurate when the float solution was all it did and misleading afterwards.
+ * The output files keep their `_rtk_float.out` suffix: that file holds the float
+ * solution whatever estimator produced it, and its name is pinned by the
+ * regression test's byte-exact comparison. Which estimator ran is in the
+ * manifest.
+ *
+ * Each epoch is linearized at its own approximate position with SPPUCCodePhase,
+ * the two equation systems are differenced between stations and then between
+ * satellites, and the resulting double-difference system is solved. Without
+ * `--estimator kalman` each epoch is independent: nothing is fixed to an integer
+ * and nothing is carried across epochs.
  *
  * ## What the float solution can and cannot be
  *
@@ -53,7 +67,7 @@
  *   <rover>_manifest.json         what produced the above
  *
  * Usage:
- *   rtk_float [config.ini] [options]
+ *   rtk [config.ini] [options]
  *
  *   config.ini            Configuration file (default: config/rtk.ini).
  *                         Relative paths inside it resolve against the config
@@ -115,7 +129,7 @@ void printUsage(const char *prog) {
     cout <<
          "Usage: " << prog << " [config.ini] [options]\n"
          "\n"
-         "RTK single-epoch least-squares float solution.\n"
+         "RTK relative positioning: least-squares (default) or Kalman.\n"
          "\n"
          "  config.ini         Configuration file (default: config/rtk.ini)\n"
          "\n"

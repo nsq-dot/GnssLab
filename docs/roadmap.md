@@ -4,30 +4,34 @@
 
 Stated plainly, because a reader should not have to infer it from the source:
 
-- **RTK float solution only.** `apps/rtk_float` does carrier-phase relative
-  positioning, but a single-epoch, least-squares, FLOAT one: nothing is fixed to
-  an integer and nothing is carried across epochs. In that formulation each phase
-  equation has its own free ambiguity, which absorbs the phase residual exactly,
-  so **the carrier phase contributes no information about position at all** and
-  the accuracy is that of the pseudorange double differences. That is a property
-  of the model, not a gap in the implementation - removing every phase equation
-  leaves the output bit-identical. See [rtk.md](rtk.md) §3.
-- **No ambiguity fixing** in the RTK solution yet. `ARLambda` is now correct and
-  built (`examples/exam-8.3-lambda.cpp`, target `mlambda`, asserted by
-  `tests/test_lambda_resolve.py`): the missing return on its search-failure path
-  is gone, the two failure paths no longer report success, and the `LOOPMAX`
-  guard actually fires. `fixSolution` still has no caller from `apps/`, so
-  `apps/rtk_float` remains float-only. Wiring it into `rtk_float` is the next
-  step; the module itself is no longer the blocker.
-- **No Kalman filter.** `estimator = 2` parses but is ignored; the solver always
-  uses least squares. `src/SPPUCCodePhase.*` is live again (it was removed once
-  as unused, and returns as the RTK linearizer).
+- **The RTK program solves one constellation at a time.** GPS, BDS-2, BDS-3, or
+  BDS-2 + BDS-3 together - but not GPS plus BeiDou, because a double difference
+  needs a single reference satellite and a mixed system has one per constellation.
+  See the last section of [rtk.md](rtk.md).
+- **The double differences are treated as uncorrelated.** `differenceStation`
+  combines the two single-difference weights as `1/(1/w_rover + 1/w_base)`, one
+  equation at a time; the strict form is `Q_DD = C·Q_SD·Cᵀ`. That is chapter 8's
+  exercise 3 and it is not done - and it matters more to the FIXED solution than
+  to the float one, because that covariance is exactly what LAMBDA is given.
+- **No Kalman filter in the SPP program.** `spp_if` still parses `estimator = 2`
+  and ignores it, always solving by least squares. The RTK program does have one,
+  behind `--estimator kalman`.
+- **The single-epoch FLOAT solution cannot use the carrier phase.** Each phase
+  equation in it carries its own free ambiguity, which absorbs the phase residual
+  exactly, so the phase contributes no information about position at all and the
+  accuracy is that of the pseudorange double differences - removing every phase
+  equation leaves the output bit-identical. That is a property of the model, not
+  a gap: it is what "float, single epoch" means, and it is what ambiguity fixing
+  and Kalman filtering are for. See [rtk.md](rtk.md) §3.
 - **No Galileo or GLONASS.** No observation types are selected for either, so
   the `Galileo` / `GLONASS` config keys are inert.
 - **No cycle-slip repair.** `apps/cs_detect_mw` and `apps/cs_detect_gf`
   *detect* slips, via the Melbourne–Wübbena and geometry-free combinations
-  respectively; nothing corrects for them, which is why the velocity solution is
-  the more robust of the two products.
+  respectively, and the Kalman path in `apps/rtk` *resets* an ambiguity one is
+  flagged on. Resetting is not repair: repair means estimating the integer jump
+  and correcting the ambiguity, which needs the slip size and keeps the
+  ambiguity's history. The detectors do not produce the size, so each reset
+  restarts that ambiguity's convergence instead.
 - **The geometry-free combination is blind to a whole direction.** Because
   `f1/f2 = 77/60` exactly for GPS, `lambda1*77 - lambda2*60 = 0`: a slip of
   `(77k, 60k)` cycles produces no change in `L1 - L2` at all and cannot be

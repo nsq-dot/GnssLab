@@ -3,7 +3,33 @@
 Notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+One structural note. Everything after 1.0.0 accumulated under an `[Unreleased]`
+heading and was tagged twice from that same block - `v1.1.0` (chapters 6 and 7)
+and `v1.2.0` (chapter 8) - so no single section describes either release on its
+own. The 1.2.0 section below is that block frozen, and it therefore carries both.
+Releases get their own section from here on.
+
 ## [Unreleased]
+
+### Changed
+
+- **The chapter-8 program is renamed `rtk_float` -> `rtk`.** It had stopped
+  being a float-only program: `--fix` resolves the ambiguities to integers,
+  `--estimator kalman` carries them across epochs, `--sys bds23 --isb` merges the
+  two BeiDou generations, and `--dump-cs` produces the slip flags the filter
+  consumes. The name described the first of those and hid the rest.
+  The OUTPUT files keep their `_rtk_float.out` suffix on purpose: that file holds
+  the float solution whatever estimator produced it, and its name is pinned by
+  `tests/test_rtk_float_regression.py`'s byte-exact comparison with the original
+  program's output. Which estimator ran is recorded in the manifest, and
+  `--help` says so. `gnss app rtk-float` becomes `gnss app rtk`.
+  Along the way, three documents that had gone stale got corrected rather than
+  just renamed: `docs/roadmap.md` still claimed the RTK program was float-only
+  with no fixing and no filter, `docs/chapter-mapping.md` still listed chapter
+  8.5 as "next batch", and neither mentioned exercise 3 or the cross-constellation
+  gap that remain.
+
+## [1.2.0] — 2026-10-02
 
 ### Added
 

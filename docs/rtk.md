@@ -1,6 +1,6 @@
 # 第8章 RTK：单历元最小二乘浮点解与 GPS/北斗精度对比
 
-本章（教材 8.1–8.5，习题 1、2）对应的程序是 `apps/rtk_float`，示例程序是
+本章（教材 8.1–8.5，习题 1、2）对应的程序是 `apps/rtk`，示例程序是
 `examples/sync_obs`、`examples/diff_station` 与 `examples/exam-8.3-lambda.cpp`
 （目标 `mlambda`）。本文记录六件事：**做这道题时踩到的两个读取器 bug**（第二节）、
 **浮点解在数学上不可能用上载波相位**（第三节）、
@@ -21,7 +21,7 @@
 
 ## 一、程序做了什么
 
-`apps/rtk_float` 每个历元独立解一次，流程与教材 8.4 节的主程序伪代码一致：
+`apps/rtk` 每个历元独立解一次，流程与教材 8.4 节的主程序伪代码一致：
 
 1. 读流动站一个历元，用 `SPPUCCodePhase::solve` 做非差非组合伪距+载波单点定位；
 2. 读时间匹配的基准站历元（用 `RinexObsReader::parseRinexObs(CommonTime&)` 同步），
@@ -317,7 +317,7 @@ GPS `(+0.005,-0.007,-0.007)`、北斗二号 `(-0.004,-0.002,+0.001)`、
 仓库里原本**没有任何地方检查拟合好坏**——`SolverLSQ::solve` 算完状态向量就结束了。
 好处是快，坏处是**一个坏历元和一个好历元从输出文件上看一模一样**。
 
-`apps/rtk_float` 因此自己算两个量写进 `_rtk_diag.csv`：
+`apps/rtk` 因此自己算两个量写进 `_rtk_diag.csv`：
 
 ```
 sigma0  = sqrt( Σ wᵢvᵢ² / (nObs − nUnk) ),   v = H·x − prefit
@@ -383,7 +383,7 @@ sigma0  = sqrt( Σ wᵢvᵢ² / (nObs − nUnk) ),   v = H·x − prefit
 
 ### 8.1 做了什么
 
-`rtk_float --fix` 在每个历元最小二乘解完之后接上教材 8.3.5 的五步：
+`rtk --fix` 在每个历元最小二乘解完之后接上教材 8.3.5 的五步：
 
 | 步 | 教材式 | 本仓库的实现 |
 |---|---|---|
@@ -459,9 +459,9 @@ GPS 与北斗三号 100% 固定，ratio 中位数 522 与 1374。零基线上双
 
 ```bash
 # 固定解（每配置约 25 秒）
-./build/bin/rtk_float config/rtk.ini --sys gps  --fix
-./build/bin/rtk_float config/rtk.ini --sys bds2 --fix
-./build/bin/rtk_float config/rtk.ini --sys bds3 --fix
+./build/bin/rtk config/rtk.ini --sys gps  --fix
+./build/bin/rtk config/rtk.ini --sys bds2 --fix
+./build/bin/rtk config/rtk.ini --sys bds3 --fix
 
 # 数字表 + 五张图（图 8-4、8-5 需要上面这一轮 --fix 的输出）
 gnss rtk-plot --out-dir output/rtk --lang zh
@@ -591,11 +591,11 @@ BDS-2（C07）的那些历元。写成"取两边系数表的并集"才对。
 
 ```bash
 # 混解：不加 / 加系统差参数（每配置约 30 秒）
-./build/bin/rtk_float config/rtk.ini --sys bds23 --fix
-./build/bin/rtk_float config/rtk.ini --sys bds23 --isb --fix
+./build/bin/rtk config/rtk.ini --sys bds23 --fix
+./build/bin/rtk config/rtk.ini --sys bds23 --isb --fix
 
 # 看一个历元的双差方程：BDS-2 卫星上应出现 [11:-1]（基准星为 BDS-3 时）
-./build/bin/rtk_float config/rtk.ini --sys bds23 --isb \
+./build/bin/rtk config/rtk.ini --sys bds23 --isb \
     --stop 2022-03-03T06:49:00 --dump-epoch 24517
 ```
 
@@ -603,9 +603,9 @@ BDS-2（C07）的那些历元。写成"取两边系数表的并集"才对。
 
 ---
 
-## 十、卡尔曼滤波（教材 8.3.4 / 考试题 8.5）
+## 十、卡尔曼滤波（教材 8.3.4 / 习题 8.5）
 
-`rtk_float --estimator kalman`。`SolverKalman` 与 `KalmanFilter` 在仓库里编得过、
+`rtk --estimator kalman`。`SolverKalman` 与 `KalmanFilter` 在仓库里编得过、
 **从没被调用过**——唯一实例化它们的是教材自己的程序 `examples/exam-8.5-rtk_kal.cpp`，
 而它不在构建目标里。本节是它第一次真的跑起来。
 
@@ -672,12 +672,12 @@ BDS-2（C07）的那些历元。写成"取两边系数表的并集"才对。
 
 ```bash
 # 卡尔曼（约 40 秒一个配置）
-./build/bin/rtk_float config/rtk.ini --sys gps  --estimator kalman --fix
-./build/bin/rtk_float config/rtk.ini --sys bds2 --estimator kalman --fix
-./build/bin/rtk_float config/rtk.ini --sys bds3 --estimator kalman --fix
+./build/bin/rtk config/rtk.ini --sys gps  --estimator kalman --fix
+./build/bin/rtk config/rtk.ini --sys bds2 --estimator kalman --fix
+./build/bin/rtk config/rtk.ini --sys bds3 --estimator kalman --fix
 
 # 看周跳标志覆盖率（卡尔曼路径下这本身就是必跑的）
-./build/bin/rtk_float config/rtk.ini --sys bds3 --dump-cs
+./build/bin/rtk config/rtk.ini --sys bds3 --dump-cs
 ```
 
 ---
@@ -712,16 +712,16 @@ BDS-2（C07）的那些历元。写成"取两边系数表的并集"才对。
 scripts/build.sh
 
 # 三种配置各跑一遍（零基线、完整两小时、约 20 秒一个）
-./build/bin/rtk_float config/rtk.ini --sys gps
-./build/bin/rtk_float config/rtk.ini --sys bds2
-./build/bin/rtk_float config/rtk.ini --sys bds3
+./build/bin/rtk config/rtk.ini --sys gps
+./build/bin/rtk config/rtk.ini --sys bds2
+./build/bin/rtk config/rtk.ini --sys bds3
 # 输出在 output/rtk/
 
 # 快速对拍（25 历元的锚点窗口）
-./build/bin/rtk_float config/rtk.ini --sys gps --stop 2022-03-03T06:49:00
+./build/bin/rtk config/rtk.ini --sys gps --stop 2022-03-03T06:49:00
 
 # 调试单个历元：打印双差方程组的残差、系数、权重与状态向量
-./build/bin/rtk_float config/rtk.ini --sys gps --dump-epoch 24524 --verbose
+./build/bin/rtk config/rtk.ini --sys gps --dump-epoch 24524 --verbose
 
 # 测试
 python tests/test_rtk_float_regression.py    # 需要 data/Zero-baseline/（未入库）

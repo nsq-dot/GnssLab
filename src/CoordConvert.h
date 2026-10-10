@@ -26,8 +26,15 @@
 // 本头文件的内联函数用它控制调试打印。各 .cpp 按习惯自己定义 debug，
 // 所以这里只提供默认值，不覆盖调用方已经定义的值——否则会触发
 // -Wmacro-redefined，而且调用方的设置会被静默丢弃。
+//
+// 默认值必须是 0（2026-10-09 由 1 改回）。这些函数是 inline 的，而本仓库的
+// 惯例是「先 include 本头文件、再 #undef/#define debug」，也就是说调用方
+// 那个值为 0 的 debug 根本到不了这里的函数体里——默认给 1 等于把打印焊死在
+// 每一个 include 了本头文件的 TU 上。后果实测有两处：`spp_if` 的 stdout 里
+// 有 10839 行 refBLH/cosUp/elev（共 23417 行），`rtk --trop` 一走到对流层
+// 路径就逐星刷屏。改成 0 之后两边都干净，且 .out 产物一个字节没变。
 #ifndef debug
-#define debug 1
+#define debug 0
 #endif
 
 // 坐标转换函数

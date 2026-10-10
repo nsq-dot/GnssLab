@@ -154,15 +154,25 @@ PYTHONPATH=python/src python -m gnss_plot.cli cs-plot --lang zh --series sample-
 ## rtk-plot
 
 ```
-gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--rover NAME]
-              [--sys gps|bds2|bds3 ...] [--base-obs FILE] [--ref-xyz X,Y,Z]
-              [--png-dir DIR] [--no-figures] [--lang en|zh]
+gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--kalman-out DIR]
+              [--rover NAME] [--sys gps|bds2|bds3 ...] [--base-obs FILE]
+              [--ref-xyz X,Y,Z] [--png-dir DIR] [--no-figures] [--lang en|zh]
 ```
 
 Plots the chapter-8 RTK float solution: SPP against RTK as a 3-D error time
 series with one panel per constellation, the ENU error time series with the three
-constellations overlaid, and the accuracy comparison as a grouped bar chart. It
-prints the numeric comparison table as well — SPP and RTK 3-D RMS, the SPP/RTK
+constellations overlaid, and the accuracy comparison as a grouped bar chart.
+
+**That first figure draws both series raw**, so its axis is a *deviation from
+the base header coordinate* and each panel annotates the offset alongside the
+RMS. Two things have to be said next to it: the RTK column is
+`xyzRover + dxyzRTK` against a base station that is itself defined by that
+reference coordinate, so its near-zero offset is structural rather than a 2 cm
+accuracy claim; and most of the SPP column's 21–33 m is a ~19–28 m offset whose
+source is still unexplained (`docs/rtk.md` §11). The same two columns with the
+offsets removed — which is what compares repeatability, and where that offset
+turns out to be a slow drift — appear as numbers only, in §4's table and prose.
+It prints the numeric comparison table as well — SPP and RTK 3-D RMS, the SPP/RTK
 ratio in the banner line, the percentiles of the 3-D error with a count of the
 epochs whose post-fit `sigma0` is more than ten times the run's median, and the
 per-axis bias and sigma, both in ENU and on the raw ECEF axes.
@@ -178,6 +188,22 @@ accepted, because that is the only part of it a consumer may use; and the
 `--no-fix-figures` skips them for a run that was fixed but is being plotted for
 its float solution.
 
+`--kalman-out DIR` names a **second tree** holding the same constellations solved
+with `--estimator kalman`, and adds **figure 8-6**: the least-squares float
+solution against the filter's, per constellation, on figure 8-1's window. Both
+of its series are float solutions, so it is not a fixing figure and
+`--no-fix-figures` does not touch it.
+
+The two trees have to be **separate directories**, which is why this takes a
+directory rather than being inferred from `--out-dir`: `apps/rtk.cpp` writes
+`<rover>_<sys>_rtk_float.out` for every estimator, so two estimators in one tree
+overwrite each other — and a recursive `--out-dir` search, whose longer-run-wins
+rule is meant to keep a smoke run from replacing a full one, would hide that it
+happened. Which run is which is read from each run's **manifest**, never from
+the order the two flags were given. A constellation is drawn only if both trees
+carry it; a missing tree, or nothing in common, warns and skips the figure
+rather than failing.
+
 The ECEF rows are there because a per-axis reading of the `.out` file lands in
 that frame, and because the two frames' three values square-sum to the same
 total (the trace of a covariance is rotation-invariant) — so the ENU and ECEF
@@ -188,7 +214,8 @@ Reads existing `apps/rtk` output — it does not run the solver; use
 
 ```bash
 # what produced docs/figures/vis_rtk_*.png
-gnss rtk-plot --out-dir output/rtk/full --lang zh
+gnss rtk-plot --out-dir output/rtk/full \
+              --kalman-out output/rtk-kalman/full --lang zh
 ```
 
 `--out-dir` defaults to `output/rtk` and is searched **recursively**, because

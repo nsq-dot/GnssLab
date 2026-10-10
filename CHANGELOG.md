@@ -11,6 +11,95 @@ Releases get their own section from here on.
 
 ## [Unreleased]
 
+### Added
+
+- **Figure 8-6, and the section it belongs to.** Chapter 8's Kalman section had
+  a table and no figure, while every neighbouring section had one. The new
+  figure draws the single-epoch least-squares float solution against the
+  filter's, one panel per constellation, on figure 8-1's own log window - so the
+  three can be read against each other. Gone through `gnss rtk-plot
+  --kalman-out DIR`, which names a second output tree because `apps/rtk.cpp`
+  writes `<rover>_<sys>_rtk_float.out` for both estimators and two of them in
+  one tree silently overwrite each other. Which run is which is read from each
+  manifest; a manifest that predates the `estimator` field is taken as
+  least-squares, which is the only reading that pairs the chapter's existing
+  runs. The six new strings went into both language tables, and the new tests
+  follow the existing run-twice-and-compare-hashes pattern.
+
+  Drawing it turned up something the table had hidden: **the filter's gain is
+  not uniform in time.** BDS-3's first ~1000-1500 epochs gain 1.4-1.6x, not the
+  4-11x the section quoted; the second half of the same runs gains 37-89x. The
+  section now says so, with a second table for the converged window and a fourth
+  conclusion for the transient, rather than leaving the figure and the prose to
+  disagree.
+
+- **Figure 8-1 draws both columns raw and annotates the offset that separates
+  them, and two opt-in corrections went into `SPPUCCodePhase` to investigate
+  what that offset is.** The panel is the graphical form of the console table's
+  rightmost column - SPP 3-D RMS 21.4 / 33.4 / 25.0 m against RTK's 0.177 /
+  1.128 / 0.076 m, i.e. 121x / 30x / 330x - and the axis says *deviation from
+  the reference* rather than error, because that is what it measures. Two
+  caveats travel with it, both on the panel as the printed offsets: the RTK
+  column is `rtk: = xyzRover + dxyzRTK` against a base station that *is* the
+  reference coordinate, so its near-zero offset is structural rather than a 2 cm
+  accuracy claim; and most of the SPP column is its own 19.5 / 28.2 / 23.7 m
+  offset. `docs/rtk.md` §4 spells both out, and withdraws the claim that the
+  SPP/RTK ratio is reference-independent - the datum term is fully present in
+  one column and zero by construction in the other.
+
+  Centring each series on its own mean was tried and kept **out** of the figure:
+  it answers a different question (how repeatable is each solution) than the one
+  the figure is for (where the two solutions land), and the chapter's headline
+  ratio is the raw one. The centred numbers are in §4's table and prose, not
+  drawn: **50x / 16x / 110x** for the residual RMS, and **7.2x / 9.2x / 14.4x**
+  for the epoch-to-epoch difference, which is the only one of the three that
+  deserves the word "noise".
+
+  The investigation added `enableTrop` / `enableBDSTGD` to `SPPUCCodePhase`
+  (config keys, `--trop` / `--bds-tgd`), both **off by default** so the
+  byte-exact anchor survives - `SPPIFCode`'s constructor initialises both flags
+  to true and the derived class never reset them, so the RTK wiring sets them
+  explicitly. Measured: the troposphere correction makes the SPP column *worse*
+  (19.5 -> 24.9 m on GPS), the BeiDou TGD correction cuts its scatter 2.7-3.5x
+  but leaves its offset, and neither moves the conditioning. Also added
+  `sppNObs/sppNUnk/sppRank/sppCond` to the RTK diagnostic CSV. The ~19-28 m SPP
+  offset remains **unexplained** and is now recorded as a known limitation
+  rather than left implicit.
+
+  **Follow-up, same day: that offset is not a constant, and what it leaves
+  behind is not noise.** Binning the run into eighths, GPS's SPP vertical error
+  goes -24.1 -24.7 -19.7 -19.6 -13.5 -8.1 -3.8 -1.7 m - a 22 m monotone drift
+  over 2.2 hours - while the same column's epoch-to-epoch vertical sigma is
+  0.74 m, so ~99% of the 8.788 m residual RMS is drift. That drift is the clue
+  the earlier exclusions all miss, since every one of them (TGD, broadcast
+  orbits, troposphere) was tested against a constant; §11 now records it
+  separately from the offset. Measured for the record: `--trop` shifts the level
+  by ~5.8 m and leaves the drift's shape and amplitude untouched (22.8 m against
+  22.4 m).
+
+### Fixed
+
+- **The withdrawn claim that the SPP/RTK ratio is reference-independent was
+  still being printed.** `docs/rtk.md` withdrew it and the CHANGELOG recorded
+  the withdrawal, but the console report's headline still read "the one
+  reference-independent number here" and its note 2 still argued the case - the
+  one place a reader is most likely to meet the number. Both languages fixed,
+  along with three docstrings in `gnss_plot.rtk` that asserted the same thing,
+  and the headline no longer calls the raw ratio an "improvement". Two tests
+  now pin the corrected wording; note 1 gained the sentence that its datum
+  argument covers the RTK column only.
+
+- **`CoordConvert.h`'s inline functions defaulted `debug` to 1, so every
+  translation unit that included the header before defining its own `debug`
+  printed unconditionally** - which is this repository's usual order. The
+  header's inline `elevation()` therefore put 10839 `refBLH/cosUp/elev` lines
+  into `spp_if`'s stdout (of 23417), and made the new troposphere path in
+  `rtk --trop` print a line per satellite. Default changed to 0; `spp_if`'s
+  stdout is byte-identical to before minus those lines, and the frozen `.out`
+  products are untouched. The `elaptc/af0/dtc` flood from
+  `NavEphGPS::svClockBias` is a separate, unguarded set of prints in the library
+  and was deliberately left alone.
+
 ### Changed
 
 - **The chapter-8 program is renamed `rtk_float` -> `rtk`.** It had stopped

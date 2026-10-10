@@ -164,6 +164,11 @@ void printUsage(const char *prog) {
          "                     single-point solves, window N epochs (0 = off, the\n"
          "                     default). Moves the spp: column, and the rtk: one\n"
          "                     with it, so the byte-exact anchor needs it off\n"
+         "  --dd-cov           Weight the double differences with their full\n"
+         "                     covariance Q_DD = C*Q_SD*C^T (chapter 8 exercise 3)\n"
+         "                     instead of treating them as independent. Off by\n"
+         "                     default - the byte-exact anchor is the independent\n"
+         "                     path.\n"
          "  --base-xyz X,Y,Z   Override the base station's assumed position (its\n"
          "                     RINEX header coordinate) with a known one. The\n"
          "                     double difference resolves the rover against it,\n"
@@ -381,6 +386,9 @@ int main(int argc, char *argv[]) {
     int optSmooth = 0;
     // Estimate the residual zenith tropospheric delay as a station unknown.
     bool optEstTrop = false;
+    // Chapter 8 exercise 3: weight the double differences with their full
+    // covariance Q_DD = C*Q_SD*C^T instead of treating them as independent.
+    bool optDdCov = false;
 
     for (int i = 1; i < argc; ++i) {
         string a = argv[i];
@@ -413,6 +421,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--smooth")     optSmooth = std::stoi(needValue("--smooth"));
         else if (a == "--base-xyz")   optBaseXyz = needValue("--base-xyz");
         else if (a == "--est-trop")   optEstTrop = true;
+        else if (a == "--dd-cov")     optDdCov = true;
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
             cerr << "Error: unknown option '" << a << "'\n";
@@ -950,9 +959,10 @@ int main(int argc, char *argv[]) {
               ambiguityDatum()，必须在求解前加）；
             - 最小二乘走三参数重载，把基准星模糊度直接差掉；
             */
-            differenceSat(datumSat, equSysSD, csFlagSd, equSysDD, csFlagDd);
+            differenceSat(datumSat, equSysSD, csFlagSd, equSysDD, csFlagDd,
+                          optDdCov);
         } else {
-            differenceSat(datumSat, equSysSD, equSysDD);
+            differenceSat(datumSat, equSysSD, equSysDD, optDdCov);
         }
 
         if (equSysDD.obsEquData.empty() || equSysDD.varSet.size() < 3) {
@@ -1176,6 +1186,9 @@ int main(int argc, char *argv[]) {
         // column and, through rtk: = xyzRover + dxyzRTK, can move the rtk: one -
         // so a run's own numbers are not comparable to another's without them.
         mf << "  \"tropEnabled\": " << (cfg.enableTrop ? "true" : "false") << ",\n";
+        // Exercise 3: whether the double differences were weighted with their
+        // full covariance. Two runs of the same tree differ only in this.
+        mf << "  \"ddCov\": " << (optDdCov ? "true" : "false") << ",\n";
         mf << "  \"bdsTgdEnabled\": " << (cfg.enableBDSTGD ? "true" : "false") << ",\n";
         // A list, because a merged BDS-2 + BDS-3 mode has one pair per
         // generation. The single-generation modes still write exactly one.

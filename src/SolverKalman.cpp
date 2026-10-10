@@ -243,6 +243,12 @@ noexcept(false)
         iobs++;
     }
 
+    // 同 SolverLSQ：带观测协方差时（习题 3 的双差相关性）用它的逆作测量权阵，
+    // 否则保持逐条独立的对角阵。行序与上面的循环一致。
+    if (equSys.obsCov.size() == numObs * numObs) {
+        wMatrix = equSys.obsCov.inverse();
+    }
+
     MatrixXd hT = hMatrix.transpose();
 
     if (prefit.size()!= hMatrix.rows()) {

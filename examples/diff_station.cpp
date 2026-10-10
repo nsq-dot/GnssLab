@@ -147,7 +147,8 @@ void printVarSet(const EquSys &es, const char *what) {
 void analyse(const char *title,
              const vector<Row> &roverRows,
              const vector<Row> &baseRows,
-             const string &datumSatName) {
+             const string &datumSatName,
+             bool ddCov = false) {
     cout << "\n";
     cout << "================================================================\n";
     cout << title << "\n";
@@ -199,11 +200,30 @@ void analyse(const char *title,
     //---------------------------------------------------------------
     SatID datum(datumSatName);
     EquSys dd;
-    differenceSat(datum, sd, dd);
+    differenceSat(datum, sd, dd, ddCov);
 
     cout << "\n-- differenceSat(datum = " << datum.toString() << ") ----------------------------\n";
     cout << "  " << dd.obsEquData.size() << " double-difference equation(s)\n";
     printVarSet(dd, "double-difference");
+
+    // 习题 3：--dd-cov 打开时打印 Q_DD = C*Q_SD*C^T，方程顺序与下面那张表一致。
+    // 对角线正好等于"方差相加"得到的老权重，被补上的是非对角项——同一观测类型的
+    // 两条双差共享基准星的单差，协方差 q_datum。默认（关）时这里是空矩阵，
+    // 解算器仍按逐条独立的 weight 取权，与改动前逐字节相同。
+    if (dd.obsCov.size() == 0) {
+        cout << "\n  (double differences treated as independent;"
+                " pass --dd-cov for Q_DD)\n";
+    } else {
+        const int n = (int) dd.obsCov.rows();
+        cout << "\n-- Q_DD = C*Q_SD*C^T (" << n << "x" << n
+             << "), same equation order ---------------\n";
+        for (int r = 0; r < n; ++r) {
+            cout << "   ";
+            for (int c = 0; c < n; ++c)
+                cout << right << fixed << setprecision(6) << setw(12) << dd.obsCov(r, c);
+            cout << "\n";
+        }
+    }
 
     cout << "\n    " << left << setw(6) << "sat" << setw(5) << "type"
          << right << setw(14) << "prefit" << setw(12) << "weight" << "   coefficients\n";
@@ -437,9 +457,11 @@ bool parseInput(istream &in, vector<Row> &roverRows, vector<Row> &baseRows, stri
 
 int main(int argc, char *argv[]) {
     bool demo = false;
+    bool ddCov = false;
     for (int i = 1; i < argc; ++i) {
         string a = argv[i];
         if (a == "--demo") demo = true;
+        else if (a == "--dd-cov") ddCov = true;
         else if (a == "-h" || a == "--help") {
             cout << "Usage: diff_station [--demo]\n"
                     "\n"
@@ -472,7 +494,7 @@ int main(int argc, char *argv[]) {
             demo = true;
         } else {
             if (datumSat.empty()) datumSat = roverRows.front().sat;
-            analyse("equation system from stdin", roverRows, baseRows, datumSat);
+            analyse("equation system from stdin", roverRows, baseRows, datumSat, ddCov);
             return 0;
         }
     }
@@ -484,12 +506,12 @@ int main(int argc, char *argv[]) {
         roverRows.clear(); baseRows.clear(); datum.clear();
         istringstream a(WELL_POSED);
         parseInput(a, roverRows, baseRows, datum);
-        analyse("EXAMPLE 1: well-posed double difference", roverRows, baseRows, datum);
+        analyse("EXAMPLE 1: well-posed double difference", roverRows, baseRows, datum, ddCov);
 
         roverRows.clear(); baseRows.clear(); datum.clear();
         istringstream b(RANK_DEFICIENT);
         parseInput(b, roverRows, baseRows, datum);
-        analyse("EXAMPLE 2: rank-deficient double difference", roverRows, baseRows, datum);
+        analyse("EXAMPLE 2: rank-deficient double difference", roverRows, baseRows, datum, ddCov);
     }
 
     return 0;

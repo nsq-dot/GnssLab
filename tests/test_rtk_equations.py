@@ -120,8 +120,9 @@ WELL_POSED = _fixture(_GOOD_ROW)
 RANK_DEFICIENT = _fixture(_BAD_ROW)
 
 
-def run_diff_station(exe: str, stdin_text: str) -> subprocess.CompletedProcess:
-    return subprocess.run([exe], cwd=ROOT, input=stdin_text,
+def run_diff_station(exe: str, stdin_text: str,
+                     extra: tuple = ()) -> subprocess.CompletedProcess:
+    return subprocess.run([exe, *extra], cwd=ROOT, input=stdin_text,
                           capture_output=True, text=True)
 
 
@@ -208,6 +209,71 @@ def main() -> int:
               f"same equation count as the well-posed case ({d['nObs']})")
         check(int(d["nUnk"]) == 3 + n_other * n_phase,
               f"same unknown count as the well-posed case ({d['nUnk']})")
+
+    #-----------------------------------------------------------------
+    # 习题 3：双差观测值的相关性 Q_DD = C·Q_SD·Cᵀ。
+    #
+    # 手工算例，每一步都能解析验算：基准星 G01；G02/G03 各带两个频点。rover 的权
+    # 0.25 / 0.5 / 1.0，base 的全是 1，于是站间单差的权是 1/(1/w_r + 1/w_b)
+    # = 0.2 / 1/3 / 0.5，即方差 q = 5 / 3 / 2。星间差分后每个频点块是
+    # [[q2+qd, qd], [qd, q3+qd]] = [[8,5],[5,7]]，两个频点之间为 0——不同频点的
+    # 单差是彼此独立的观测，所以 Q_DD 是分块对角的。
+    print("Exercise 3: Q_DD = C*Q_SD*C^T on a hand-computable case\n")
+
+    dd_in = ("rover\n"
+             "G01 C1 0 0.25 dx=1\nG02 C1 0 0.5  dx=1\nG03 C1 0 1.0  dx=1\n"
+             "G01 L1 0 0.25 amb=1\nG02 L1 0 0.5  amb=1\nG03 L1 0 1.0  amb=1\n"
+             "base\n"
+             "G01 C1 0 1\nG02 C1 0 1\nG03 C1 0 1\n"
+             "G01 L1 0 1\nG02 L1 0 1\nG03 L1 0 1\n"
+             "datum G01\n")
+
+    r_off = run_diff_station(exe, dd_in)
+    r_on = run_diff_station(exe, dd_in, extra=("--dd-cov",))
+    check(r_off.returncode == 0 and r_on.returncode == 0, "both runs exit 0")
+    check("treated as independent" in r_off.stdout,
+          "without --dd-cov the double differences stay independent")
+
+    # 顺序是"先卫星后频点"：G02 C1, G02 L1, G03 C1, G03 L1。
+    want = [[8.0, 0.0, 5.0, 0.0],
+            [0.0, 8.0, 0.0, 5.0],
+            [5.0, 0.0, 7.0, 0.0],
+            [0.0, 5.0, 0.0, 7.0]]
+    rows = []
+    grab = False
+    for line in r_on.stdout.splitlines():
+        if line.startswith("-- Q_DD = C"):
+            grab = True
+            continue
+        if grab:
+            if not line.strip():
+                break                      # the matrix ends at a blank line
+            try:
+                rows.append([float(v) for v in line.split()])
+            except ValueError:
+                break
+    check(len(rows) == 4, f"the covariance is printed as 4 rows (got {len(rows)})")
+    if len(rows) == 4:
+        for i, (got, exp) in enumerate(zip(rows, want)):
+            check(len(got) == 4 and all(abs(a - b) < 1e-6 for a, b in zip(got, exp)),
+                  f"Q_DD row {i} = {exp} (got {got})")
+
+    # 不变量：两种加权下的 weight 列表逐个相同——它们正是 Q_DD 的对角线
+    # (q_s + q_datum)，也就是原来那条"方差相加"。被补上的只有非对角项。
+    def weights(out: str) -> list:
+        vals = []
+        for line in out.splitlines():
+            f = line.split()
+            if len(f) >= 4 and f[0].startswith("G0") and f[1] in ("C1", "L1"):
+                try:
+                    vals.append(float(f[3]))
+                except ValueError:
+                    pass
+        return vals
+
+    check(weights(r_off.stdout) == weights(r_on.stdout),
+          "the diagonal (the old variance-addition weights) is unchanged")
+    check(len(weights(r_off.stdout)) > 0, "the weights were found at all")
 
     print()
     if failures:

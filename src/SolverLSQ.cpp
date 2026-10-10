@@ -60,6 +60,13 @@ void SolverLSQ::solve(EquSys &equSys) {
         iobs++;
     }
 
+    // 如果方程系统带了观测协方差（习题 3：双差的相关性，--dd-cov），就用它的
+    // 逆作权阵，覆盖上面逐条独立的对角阵。空矩阵 = 旧路径，一字节没变。
+    // 行序与上面的循环一致（同一个 map 的迭代顺序）。
+    if (equSys.obsCov.size() == numObs * numObs) {
+        wMatrix = equSys.obsCov.inverse();
+    }
+
     MatrixXd hT = hMatrix.transpose();
 
     if (prefit.size()!= hMatrix.rows()) {

@@ -1414,9 +1414,48 @@ SatID findDatumSat(bool& firstEpoch,
     return datumSat;
 }
 
+// 双差观测值的方差-协方差阵 Q_DD = C·Q_SD·Cᵀ（习题 3）。
+//
+// 站间差分之后 Q_SD 是对角的（两个测站彼此独立），第 i 个单差的方差是
+// q_i = 1/w_i。星间差分是"同类型里非基准星减基准星"，所以每一对双差里都带着
+// 基准星那一个单差：**同类型**的两条双差之间有协方差 q_datum，不同类型之间没有
+// （不同频点的单差是彼此独立的观测）。因此 Q_DD 按观测类型分块，
+// 每块 = diag(q_s) + q_datum·11ᵀ，跨块为零。
+//
+// 对角线上正是 diag(q_s + q_datum)，也就是原来那条逐条独立的权；被丢掉的只是
+// 非对角项。只有 ddCov 为真时才会调用它（默认关，保住逐字节锚点）。
+static Eigen::MatrixXd buildDDCov(const std::map<EquID, EquData> &equDataDD,
+                                  const std::map<EquID, EquData> &otherEquData,
+                                  const std::map<ObsID, EquData> &datumEquData) {
+    const int n = (int) equDataDD.size();
+    Eigen::MatrixXd q = Eigen::MatrixXd::Zero(n, n);
+
+    std::map<EquID, int> row;                  // 与解算器同一顺序
+    int i = 0;
+    for (const auto &ed : equDataDD)
+        row[ed.first] = i++;
+
+    for (const auto &ed : equDataDD) {
+        const ObsID obsID(ed.first.sat.system, ed.first.obsType);
+        const double qDatum = 1.0 / datumEquData.at(obsID).weight;
+        const int r = row.at(ed.first);
+
+        q(r, r) = 1.0 / otherEquData.at(ed.first).weight + qDatum;
+
+        for (const auto &ed2 : equDataDD) {
+            if (ed2.first == ed.first)                       continue;
+            if (ed2.first.sat.system != ed.first.sat.system) continue;
+            if (ed2.first.obsType != ed.first.obsType)       continue;
+            q(row.at(ed2.first), r) = qDatum;
+        }
+    }
+    return q;
+}
+
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD,
-                    EquSys& equSysDD ) {
+                    EquSys& equSysDD,
+                    bool ddCov ) {
     //----------------------------------------------------
     // 根据基准卫星，选择每个观测类型的观测值，并将其他的与基准卫星对应观测值求差
     // warning:
@@ -1555,21 +1594,24 @@ void differenceSat( SatID& datumSat,
                 }
             }
 
-            // 双差的方差近似等于单差观测值的方差的和；
+            // 双差的对角方差近似等于单差观测值的方差的和；
+            // （这仍然填在 weight 上，所以逐条独立的旧路径一字节都没变。）
             double weightCurrent = ed.second.weight;
             double weightDatum = datumEquData.at(currentObsID).weight;
             double varDiff = 1.0/weightCurrent + 1.0/weightDatum;
             equDataDD[ed.first].weight = 1.0/varDiff;
-
-            //
-            // todo
-            // 构建完整的方差协方差阵，并比较定位结果的不同
         }
         catch(...)
         {
             continue;
         }
     }
+
+    // 习题 3：把非对角项补上。默认关（--dd-cov 打开），关着的时候
+    // obsCov 是空矩阵，解算器按上面的 weight 逐条取权，与改动前逐字节相同。
+    if (ddCov)
+        equSysDD.obsCov = buildDDCov(equDataDD, otherEquData, datumEquData);
+
     equSysDD.obsEquData = equDataDD;
     equSysDD.varSet = varSetDD;
 };
@@ -1652,7 +1694,8 @@ void differenceStation(EquSys& equSysRover, VariableDataMap& csFlagRover,
 
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD, VariableDataMap& csFlagSD,
-                    EquSys& equSysDD, VariableDataMap& csFlagDD ) {
+                    EquSys& equSysDD, VariableDataMap& csFlagDD,
+                    bool ddCov ) {
     //----------------------------------------------------
     // 根据基准卫星，选择每个观测类型的观测值，并将其他的与基准卫星对应观测值求差
     // warning:
@@ -1755,16 +1798,18 @@ void differenceSat( SatID& datumSat,
             double weightDatum = datumEquData.at(currentObsID).weight;
             double varDiff = 1.0/weightCurrent + 1.0/weightDatum;
             equDataDD[ed.first].weight = 1.0/varDiff;
-
-            //
-            // todo
-            // 构建完整的方差协方差阵，并比较定位结果的不同
         }
         catch(...)
         {
             continue;
         }
     }
+
+    // 习题 3：把非对角项补上。默认关（--dd-cov 打开），关着的时候
+    // obsCov 是空矩阵，解算器按上面的 weight 逐条取权，与改动前逐字节相同。
+    if (ddCov)
+        equSysDD.obsCov = buildDDCov(equDataDD, otherEquData, datumEquData);
+
     equSysDD.obsEquData = equDataDD;
     equSysDD.varSet = varSetDD;
 

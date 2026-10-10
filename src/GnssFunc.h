@@ -210,11 +210,13 @@ SatID findDatumSat(bool& firstEpoch,
 
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD, VariableDataMap& csFlagSD,
-                    EquSys& equSysDD, VariableDataMap& csFlagDD);
+                    EquSys& equSysDD, VariableDataMap& csFlagDD,
+                    bool ddCov = false);
 
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD,
-                    EquSys& equSysDD);
+                    EquSys& equSysDD,
+                    bool ddCov = false);
 
 void ambiguityDatum(bool& firstEpoch,
                     SatID& datumSat,

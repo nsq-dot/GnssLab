@@ -474,6 +474,14 @@ struct EquSys
     std::map<EquID, EquData> obsEquData;
     // 整个方程系统的所有未知参数
     VariableSet varSet;
+    // 观测值的方差-协方差阵，排列顺序与 obsEquData 的 map 顺序一致（第 i 行/列
+    // 对应第 i 个方程），所以解算器照着自己的循环顺序读即可。
+    //
+    // **空矩阵表示"各观测彼此独立"**，也就是按 EquData::weight 逐条取权——那是
+    // 本仓库一直以来的做法，也是逐字节锚点对应的路径。只有 differenceSat 在开启
+    // 双差相关性（习题 3、`--dd-cov`）时才填它：Q_DD = C·Q_SD·Cᵀ，同一观测类型
+    // 的双差共享基准星的单差，两两之间的协方差是 q_datum。
+    Eigen::MatrixXd obsCov;
 };
 
 struct Result

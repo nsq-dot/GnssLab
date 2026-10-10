@@ -164,6 +164,10 @@ void printUsage(const char *prog) {
          "                     single-point solves, window N epochs (0 = off, the\n"
          "                     default). Moves the spp: column, and the rtk: one\n"
          "                     with it, so the byte-exact anchor needs it off\n"
+         "  --base-xyz X,Y,Z   Override the base station's assumed position (its\n"
+         "                     RINEX header coordinate) with a known one. The\n"
+         "                     double difference resolves the rover against it,\n"
+         "                     so it is the datum of the whole chapter\n"
          "  --est-trop         Estimate the residual zenith tropospheric delay as\n"
          "                     a station unknown instead of trusting the model.\n"
          "                     Combine with --trop to correct the model, or use\n"
@@ -361,6 +365,11 @@ int main(int argc, char *argv[]) {
     string optEstimator;
     bool optFix = false;
     double optDumpSod = -1.0;
+    // Override the BASE station's assumed position (its RINEX header
+    // coordinate is what the double difference resolves against). The
+    // zero-baseline set's headers sit ~25 m from the antenna - see
+    // docs/rtk.md - so a run wanting a true datum passes one here.
+    string optBaseXyz;
     // Precise products, both or neither: --sp3 <orbit file> --clk <clock file>.
     // With them the single-point solves run on IGS/CODE orbits and clocks
     // instead of the broadcast ephemeris, which is how the chapter measures
@@ -402,6 +411,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--sp3")        optSp3 = needValue("--sp3");
         else if (a == "--clk")        optClk = needValue("--clk");
         else if (a == "--smooth")     optSmooth = std::stoi(needValue("--smooth"));
+        else if (a == "--base-xyz")   optBaseXyz = needValue("--base-xyz");
         else if (a == "--est-trop")   optEstTrop = true;
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
@@ -833,6 +843,18 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        if (!optBaseXyz.empty()) {
+            // The datum the double difference resolves against. Setting it on
+            // the observation is enough: sppBase is linearized here and never
+            // solved, so this is the only place the position is read.
+            double bx, by, bz;
+            if (sscanf(optBaseXyz.c_str(), "%lf,%lf,%lf", &bx, &by, &bz) == 3) {
+                baseData.antennaPosition = Eigen::Vector3d(bx, by, bz);
+            } else {
+                cerr << "Error: --base-xyz wants X,Y,Z in metres\n";
+                return 2;
+            }
+        }
         if (optSmooth > 0) {
             smoother.smooth(baseData);
         }

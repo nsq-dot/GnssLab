@@ -63,8 +63,8 @@ Releases get their own section from here on.
   (19.5 -> 24.9 m on GPS), the BeiDou TGD correction cuts its scatter 2.7-3.5x
   but leaves its offset, and neither moves the conditioning. Also added
   `sppNObs/sppNUnk/sppRank/sppCond` to the RTK diagnostic CSV. The ~19-28 m SPP
-  offset remains **unexplained** and is now recorded as a known limitation
-  rather than left implicit.
+  offset was later found to be the receiver-reported datum - see the entry under
+  Fixed.
 
   **Follow-up, same day: that offset is not a constant, and what it leaves
   behind is not noise.** Binning the run into eighths, GPS's SPP vertical error
@@ -75,9 +75,37 @@ Releases get their own section from here on.
   orbits, troposphere) was tested against a constant; §11 now records it
   separately from the offset. Measured for the record: `--trop` shifts the level
   by ~5.8 m and leaves the drift's shape and amplitude untouched (22.8 m against
-  22.4 m).
+  22.4 m). That "worse" was measured against the wrong datum and does not hold -
+  against the true one the correction helps, see Fixed.
 
 ### Fixed
+
+- **The chapter's SPP column was measuring the reference coordinate, not the
+  solution.** Both receivers report header coordinates 0.070 m apart that sit
+  **24.9 m** from the antenna. Three measurements separate the two: the same
+  solver reaches **1.06 m** on a 2025 station whose true coordinate is known;
+  the two receivers solving independently on precise orbits and clocks agree to
+  **0.020 m**; and the broadcast and precise solutions differ by **1.70 m**. So
+  the 19-28 m was the datum. `rtk` gains `--base-xyz X,Y,Z` to supply a true
+  base position - the data files keep the receiver-reported values, which is
+  what the byte-exact anchor was produced with, and which is itself the finding.
+  With it the SPP 3-D RMS becomes 11.3 / 18.7 / 9.1 m (from 21.4 / 33.4 / 25.0),
+  the RTK column is unchanged, and the chapter's tables, figures and repro
+  commands all carry the true value. The claim that the troposphere correction
+  makes the SPP *worse* is also withdrawn: measured against a true datum it
+  helps (11.3 -> 9.2 m 3-D RMS, mean offset 7.1 -> 1.0 m).
+
+- **The precise clock products are not relativity-corrected.** The --sp3/--clk
+  path turned SP3Store::addRelativity off, on the premise that the IGS/CODE
+  clocks already contain that term. They do not - they are the same convention
+  as the broadcast polynomial - and the comparison that "verified" the premise
+  was circular, using the store's own computed term. Measured against bds_eph
+  the precise clock minus the broadcast polynomial is 1.9 / 10.3 / -2.8 ns, the
+  broadcast clock's own error, not the +/-7-25 ns the term is worth. With it
+  back, the 2025 Wuhan 24-hour run goes from 6.32 m mean / 14.80 m 3-D RMS to
+  1.06 m / 4.94 m, better than the broadcast ephemeris as a precise solution
+  should be.
+
 
 - **The withdrawn claim that the SPP/RTK ratio is reference-independent was
   still being printed.** `docs/rtk.md` withdrew it and the CHANGELOG recorded

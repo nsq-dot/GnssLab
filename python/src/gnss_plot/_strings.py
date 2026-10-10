@@ -122,7 +122,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_nullspace": "a slip of {dn1} / {dn2} cycles is injected here",
 
         # --- RTK figures (chapter 8) ---
-        "title_rtk_ts": "RTK float ENU error against the base header ({rover}, {n} epochs)",
+        "title_rtk_ts": "RTK float ENU error against the reference ({rover}, {n} epochs)",
         "title_rtk_bars": "RTK float accuracy by constellation ({rover})",
 
         # Three decimals, not the two the SPP figure uses: an RTK sigma is
@@ -224,8 +224,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "legend_bar_rms": "3-D RMS about the reference",
 
         # --- RTK console report (chapter 8) ---
-        "rpt_rtk_title": "RTK float accuracy against the base header position ({rover})",
-        "rpt_rtk_ref": "Reference = base header APPROX POSITION XYZ (ECEF): "
+        "rpt_rtk_title": "RTK float accuracy against the reference coordinate ({rover})",
+        "rpt_rtk_ref": "Reference coordinate (ECEF): "
                        "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
         "rpt_rtk_epochs": "{n} epochs per constellation, {nmodes} constellations",
 
@@ -397,7 +397,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_nullspace": "此历元注入 {dn1} / {dn2} 周",
 
         # --- RTK 图（第 8 章）---
-        "title_rtk_ts": "RTK 浮点解 ENU 误差时序（相对基准站表头，{rover}，{n} 个历元）",
+        "title_rtk_ts": "RTK 浮点解 ENU 误差时序（相对参考坐标，{rover}，{n} 个历元）",
         "title_rtk_bars": "各星座 RTK 浮点解精度（{rover}）",
 
         "annot_stats_rtk": "{mode}: 偏差={bias:+.3f}  σ={std:.3f}  RMS={rms:.3f} m",
@@ -463,8 +463,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "legend_bar_rms": "相对参考的外符合三维 RMS",
 
         # --- RTK 控制台报告（第 8 章）---
-        "rpt_rtk_title": "RTK 浮点解精度评估（相对基准站表头坐标，{rover}）",
-        "rpt_rtk_ref": "参考坐标 = 基准站表头 APPROX POSITION XYZ (ECEF): "
+        "rpt_rtk_title": "RTK 浮点解精度评估（相对参考坐标，{rover}）",
+        "rpt_rtk_ref": "参考坐标 (ECEF): "
                        "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
         "rpt_rtk_epochs": "每个星座 {n} 个历元，共 {nmodes} 个星座",
 

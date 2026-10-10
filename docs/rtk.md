@@ -212,20 +212,20 @@ ECEF 三轴的值，两者不可混用（见下方注记）。
 
 | 配置 | SPP 3D-RMS | **RTK 3D-RMS** | RTK σ (E, N, U) | \|d\| 50 / 95 / max | SPP→RTK |
 |---|---|---|---|---|---|
-| GPS L1/L2 | 11.314 m | **0.177 m** | (0.048, 0.038, **0.166**) | 0.081 / 0.307 / 2.431 m | 64× |
-| 北斗二号 B1I/B2I | 18.673 m | **1.128 m** | (0.302, 0.304, **1.043**) | 0.675 / 2.227 / 12.000 m | 17× |
-| 北斗三号 B1I/B2a | 9.104 m | **0.076 m** | (0.026, 0.023, **0.065**) | 0.034 / 0.106 / 1.813 m | 120× |
+| GPS L1/L2 | **2.844 m** | **0.177 m** | (0.048, 0.038, **0.166**) | 0.081 / 0.307 / 2.431 m | 16× |
+| 北斗二号 B1I/B2I | 13.502 m | **1.128 m** | (0.302, 0.304, **1.043**) | 0.675 / 2.227 / 12.000 m | 12× |
+| 北斗三号 B1I/B2a | 3.124 m | **0.076 m** | (0.026, 0.023, **0.065**) | 0.034 / 0.106 / 1.813 m | 40× |
 
 ![SPP 与 RTK 相对参考坐标的三维偏差时序](figures/vis_rtk_spp_vs_rtk_ts.png)
 
 **图 8-1**　SPP 与 RTK **相对参考坐标**的三维偏差时序，每个星座一个面板（上起 GPS、北斗
 二号、北斗三号），纵轴对数、三个面板共用同一窗口。灰线为 SPP，红线为 RTK 浮点解，两条线
 都是**原始结果**（没有做任何扣除或缩放）；面板左上角给出各自的**三维 RMS 与偏移量**，
-最后一行是上表最右列那个比值。三条 SPP 带子落在 9–19 m，三条 RTK 带子落在 0.08–1.13 m。
+最后一行是上表最右列那个比值。三条 SPP 带子落在 2.8–13.5 m，三条 RTK 带子落在 0.08–1.13 m。
 
 **这张图画的是什么。** 横轴是当天秒内时刻 sod，**每个点是一个历元的三维位置偏差**
 |d| = √(E²+N²+U²)，坐标框架是站心 ENU、参考是基准站表头坐标——与上表同源，面板上的数字
-就是 `rtk.error_stats` 的那几个返回值，不另算。纵轴取对数：两列相差 12–120 倍，线性轴上
+就是 `rtk.error_stats` 的那几个返回值，不另算。纵轴取对数：两列相差 12–40 倍，线性轴上
 RTK 会退化成贴着零线的一条直线。三个面板共用同一窗口同样是为了可比——各自缩放会让北斗
 二号的 1.13 m 与北斗三号的 0.076 m 看起来一样。
 
@@ -238,9 +238,9 @@ RTK 会退化成贴着零线的一条直线。三个面板共用同一窗口同�
    ——也就是参考坐标本身。所以那 0.005–0.017 m 是**双差自身的残差**（零基线上真值确实是
    0），不是「RTK 精确到 2 cm」的证据。
 
-**「残余」不等于「噪声」。** SPP 那一侧仍然**有一半是偏移**（GPS 7.1 m、北斗二号 5.5 m、
-北斗三号 4.1 m，见面板），另一半是它自己的**慢漂移**。把偏移扣掉再看同一批数据，回答的是
-另一个问题——**各自的重复性有多好**；图 8-1 仍然只画原始结果，那一问的数这里只给数字：
+**「残余」不等于「噪声」。** 面板上的「偏移」是两列各自的均值离参考有多远（GPS 0.01 m、
+北斗二号 9.4 m、北斗三号 1.7 m），扣掉它再看同一批数据，回答的是另一个问题——
+**各自的重复性有多好**；图 8-1 仍然只画原始结果，那一问的数这里只给数字：
 
 - 去均值后的残余 RMS：SPP 8.788 / 17.851 / 8.130 m，RTK 0.176 / 1.128 / 0.074 m，比值
   **50× / 16× / 110×**；
@@ -253,9 +253,9 @@ RTK 会退化成贴着零线的一条直线。三个面板共用同一窗口同�
 
 | | 原始 RMS 比（图上标的） | 去均值后残余比 | 逐历元（≈噪声）比 |
 |---|---|---|---|
-| GPS | 64× | 50× | **7.2×** |
-| 北斗二号 | 17× | 16× | **9.2×** |
-| 北斗三号 | 120× | 110× | **14.4×** |
+| GPS | 16× | 16× | **3.7×** |
+| 北斗二号 | 12× | 9× | **5.1×** |
+| 北斗三号 | 40× | 35× | **3.3×** |
 
 所以三个星座的**噪声**其实都在 7–14 倍这个量级，16× 与 110× 的悬殊主要来自漂移。这条 22 m
 单调漂移的形状本身，也是第十一节那个未解偏移留下的最有用的线索：它是一个**慢变量**，与
@@ -263,11 +263,11 @@ RTK 会退化成贴着零线的一条直线。三个面板共用同一窗口同�
 
 四条结论：
 
-1. **三个比值得分清**，它们回答三个不同的问题：原始 RMS 比 12–120×（上表最右列、图 8-1
-   面板上标注的那个）说「离参考坐标差多少」，SPP 那一侧一半是偏移、一半是慢漂移；
-   去均值后残余比 50 / 16 / 110× 说「去均值后残余差多少」；逐历元比 7.2 / 9.2 / 14.4×
-   才是「噪声差多少」。偏移的来源已经查清——就是那个偏了 24.9 m 的表头；加上 `--trop`
-   还能把 SPP 那一列再降一半（见本节末）。
+1. **三个比值得分清**，它们回答三个不同的问题：原始 RMS 比 12–40×（上表最右列、图 8-1
+   面板上标注的那个）说「离参考坐标差多少」；去均值后残余比 16 / 9 / 35× 说「去均值后残余
+   差多少」；逐历元比 3.7 / 5.1 / 3.3× 才是「噪声差多少」。三个数都比以前小，是因为这一节
+   现在用的是**打开对流层改正、GPS 用精密轨道与钟差**的那套配置（见本节末）——单点定位
+   已经到了它作为"纯码解"该有的水平，再往下要靠在载波上做文章（第八、十节）。
 2. **三种配置一律是垂直方向最差**：U 轴的 σ 都比水平两个方向大 2–4 倍
    （GPS 0.166 vs 0.048/0.038；北斗三号 0.065 vs 0.026/0.023）。
    这是卫星几何本身决定的——垂直方向没有可用的几何约束，三个配置都逃不掉。
@@ -338,10 +338,26 @@ SPP 那一列里**全额保留**，在 RTK 那一列里**按构造为零**，它
 通过 `rtk --base-xyz X,Y,Z` 交给解算（双差就是相对这个基准解的）。真值本身的不确定度
 由第 1 条界定在 **~1 m**。
 
-**顺带一条**：这一列用 `--trop`（加对流层改正）还能再降——SPP 三维 RMS 从
-GPS 11.314 → 约 9.2 m、北斗三号 9.104 → 约 3.1 m，均值偏差从 7.1/5.5/4.1 m 降到
-1.0/9.4/1.7 m（北斗二号那一列偏 9 m 是它自己的几何问题，见第五节）。本文的表格与图
-沿用不带 `--trop` 的配置，因为那才是 `config/rtk.ini` 与字节锚点用的配置。
+**这张表用的配置**：三种模式都加 `--trop`（对流层改正）与 `--base-xyz`；北斗两种另加
+`--bds-tgd`（TGD），**GPS 还用了精密轨道与钟差**（`--sp3`/`--clk`，CODE 2022-03-03 的产品）。
+三个杠杆各自的贡献（GPS，对同一批历元）：
+
+| 配置 | 均值偏差 | 三维 RMS |
+|---|---|---|
+| 章节原配置（表头当参考、广播星历、无对流层）| 19.47 m | 21.36 m |
+| ＋真位置 | 7.13 m | 11.31 m |
+| ＋`--trop` | 1.04 m | 9.25 m |
+| ＋精密轨道与钟差 | **0.01 m** | **2.84 m** |
+
+**为什么 GPS 用精密产品而北斗没有**：手上的 CODE 产品（`COD21994.*`）不含北斗钟差，
+所以 bds2/bds3 只能留在广播星历上——它们的 SPP 那一列因此是"广播 + 对流层 + TGD"的结果
+（13.5 / 3.1 m），比 GPS 那 2.84 m 保守。**RTK 那一列基本不受这个区别影响**（双差把
+卫星端误差抵消掉了），所以上表里 RTK 的三列与旧版逐毫米相同，第五节的星座比较依然成立。
+要拿到北斗的精密解，需要 MGEX 版本的轨道与钟差（`COD0MGXFIN_…`）。
+
+**单点定位到此为止**：上表最后一档 2.84 m 是"纯码解"的现实水平（第六章那 2.76 m 是同一
+量级，且是更短窗口上的离散度）。**再往下必须用载波**——第八节的固定解是 0.0011–0.0051 m、
+第十节的卡尔曼浮点解是 0.017–0.098 m，那才是相位真正约束坐标之后的结果。
 
 
 ## 五、北斗频点的陷阱：B1I+B2I 只覆盖北斗二号
@@ -535,11 +551,13 @@ GPS 与北斗三号 100% 固定，ratio 中位数 522 与 1374。零基线上双
 ### 8.4 复现
 
 ```bash
+SP3="data/COD21994.EPH"   # CODE 精密轨道（不含北斗）
+CLK="data/COD21994_rnx3.CLK"   # 对应的精密钟差（RINEX 3.02）
 TRUE="-2267803.4464,5009342.4841,3220991.0095"
 # 固定解（每配置约 25 秒），落到与第十二节同一棵树里
-./build/bin/rtk config/rtk.ini --sys gps  --fix --base-xyz $TRUE --out-dir output/rtk/full
-./build/bin/rtk config/rtk.ini --sys bds2 --fix --base-xyz $TRUE --out-dir output/rtk/full
-./build/bin/rtk config/rtk.ini --sys bds3 --fix --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys gps  --fix --trop $SP3 $CLK --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
 
 # 数字表 + 五张图（图 8-1…8-5，其中 8-4、8-5 需要上面这一轮 --fix 的输出。
 # 图 8-6 要的是第十节那棵卡尔曼树，另见第 10.5 节）
@@ -782,11 +800,13 @@ sod ≥ 28612）再算一遍，数字是这样：
 ### 10.5 复现
 
 ```bash
+SP3="data/COD21994.EPH"   # CODE 精密轨道（不含北斗）
+CLK="data/COD21994_rnx3.CLK"   # 对应的精密钟差（RINEX 3.02）
 TRUE="-2267803.4464,5009342.4841,3220991.0095"
 # 卡尔曼（约 40 秒一个配置），写到单独一棵树里，别和最小二乘那批混在一起
-./build/bin/rtk config/rtk.ini --sys gps  --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
-./build/bin/rtk config/rtk.ini --sys bds2 --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
-./build/bin/rtk config/rtk.ini --sys bds3 --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys gps  --estimator kalman --fix --trop $SP3 $CLK --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys bds2 --estimator kalman --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys bds3 --estimator kalman --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-kalman/full
 
 # 看周跳标志覆盖率（卡尔曼路径下这本身就是必跑的）
 ./build/bin/rtk config/rtk.ini --sys bds3 --dump-cs
@@ -846,22 +866,24 @@ gnss rtk-plot --out-dir output/rtk/full --kalman-out output/rtk-kalman/full --la
 ## 十二、复现方法
 
 ```bash
+SP3="data/COD21994.EPH"   # CODE 精密轨道（不含北斗）
+CLK="data/COD21994_rnx3.CLK"   # 对应的精密钟差（RINEX 3.02）
 TRUE="-2267803.4464,5009342.4841,3220991.0095"
 # 构建
 scripts/build.sh
 
 # 树 1：单历元最小二乘（默认估计器），零基线、完整两小时、约 25 秒一个。
 # 带 --fix：它同时写出浮点解与固定解（同一批历元，两个文件），图 8-1…8-5 都来自这棵树。
-./build/bin/rtk config/rtk.ini --sys gps  --fix --base-xyz $TRUE --out-dir output/rtk/full
-./build/bin/rtk config/rtk.ini --sys bds2 --fix --base-xyz $TRUE --out-dir output/rtk/full
-./build/bin/rtk config/rtk.ini --sys bds3 --fix --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys gps  --fix --trop $SP3 $CLK --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
 
 # 树 2：卡尔曼（第十节），图 8-6 的另一半。
 # 必须是 output/rtk 的兄弟目录，不能放在它里面——两种估计器写同一个文件名，
 # 而 --out-dir 的搜索是递归的，「长的赢」会把这件事藏起来。详见第 10.5 节。
-./build/bin/rtk config/rtk.ini --sys gps  --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
-./build/bin/rtk config/rtk.ini --sys bds2 --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
-./build/bin/rtk config/rtk.ini --sys bds3 --estimator kalman --fix --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys gps  --estimator kalman --fix --trop $SP3 $CLK --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys bds2 --estimator kalman --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-kalman/full
+./build/bin/rtk config/rtk.ini --sys bds3 --estimator kalman --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-kalman/full
 
 # 快速对拍（25 历元的锚点窗口）
 ./build/bin/rtk config/rtk.ini --sys gps --stop 2022-03-03T06:49:00

@@ -78,6 +78,19 @@ Releases get their own section from here on.
   22.4 m). That "worse" was measured against the wrong datum and does not hold -
   against the true one the correction helps, see Fixed.
 
+### Changed
+
+- **Section four's runs now correct the troposphere and, for GPS, use precise
+  orbits and clocks.** The SPP column becomes 2.844 / 13.502 / 3.124 m (from
+  11.314 / 18.673 / 9.104) and the ratio 16x / 12x / 40x. The three levers,
+  measured over the same epochs: the true base position (21.36 -> 11.31 m 3-D
+  RMS), `--trop` (-> 9.25, and the mean offset 7.13 -> 1.04 m), and precise
+  products for GPS (-> 2.84 m, mean offset 0.01 m). BeiDou stays on the
+  broadcast ephemeris because the CODE product at hand carries no BeiDou
+  clocks; the RTK column is unaffected by that asymmetry, so section five's
+  constellation comparison still holds. Every repro command in the document
+  carries the new options.
+
 ### Fixed
 
 - **The chapter's SPP column was measuring the reference coordinate, not the

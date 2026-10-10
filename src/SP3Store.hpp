@@ -48,6 +48,16 @@ public:
     virtual Xvt getXvt(const SatID &sat, const CommonTime &time)
     noexcept(false);
 
+    // Whether getXvt adds the computed relativistic correction on top of the
+    // clock it read. The precise (IGS/CODE) clock products ALREADY contain
+    // that correction, so a solver consuming these clocks must leave this
+    // false or it counts the term twice - ±7 m, invisible in a difference but
+    // not in a position (see docs/rtk.md, the zero-baseline SPP offset).
+    // Default true: bds_eph / bds_gps_diff compare these clocks against
+    // broadcast ones, whose relativity the solver adds separately, so their
+    // behaviour must not change.
+    bool addRelativity = true;
+
     PosVel getPosVel(const SatID &sat, const CommonTime &time);
 
     ClockData getClock(const SatID &sat, const CommonTime &time);

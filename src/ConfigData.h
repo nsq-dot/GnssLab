@@ -205,6 +205,36 @@ struct RTKConfigData {
     double cutOffElevation;
 
     /**
+     * Apply the troposphere-delay correction in the single-point solves.
+     *
+     * There is exactly one model: Saastamoinen zenith delay, a Niell dry mapping
+     * function, and a simplified 1/(sinE+0.00095) wet mapping. `config/spp.ini`
+     * exposes the same switch as an integer `tropModel` whose comment offers
+     * three models - that comment is stale, every non-zero value runs this one -
+     * which is why this is a bool and not a model id.
+     *
+     * OFF by default, and that default is load-bearing. The correction moves the
+     * rover's single-point position, and apps/rtk.cpp writes
+     * `rtk: = xyzRover + dxyzRTK`, so turning it on breaks the byte-for-byte
+     * `rtk:` comparison in tests/test_rtk_float_regression.py. The double
+     * difference compensates, but not to the last bit. Set it to measure what
+     * the missing model costs the `spp:` column.
+     */
+    bool enableTrop;
+
+    /**
+     * Apply the BeiDou broadcast TGD correction in the single-point solves
+     * (TGD1 to C2, TGD2 to C7).
+     *
+     * GPS is unaffected either way: its TGD is already folded into the satellite
+     * clock by NavEphGPS, so correctTGD's GPS branch subtracts zero. This only
+     * moves bds2 / bds3 / bds23.
+     *
+     * OFF by default, for the same byte-exactness reason as enableTrop.
+     */
+    bool enableBDSTGD;
+
+    /**
      * Estimate a receiver inter-system bias between the two BeiDou generations.
      *
      * Only meaningful with `sys = bds23`, and off by default. The two BeiDou

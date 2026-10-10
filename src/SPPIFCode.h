@@ -5,6 +5,7 @@
 #include "SolverLSQ.h"
 #include "SPPVelocity.h"
 #include "RinexNavStore.hpp"
+#include "EphStore.h"
 #include <Eigen/Eigen>
 
 class SPPIFCode {
@@ -27,6 +28,15 @@ public:
     }
 
     void setRinexNavStore(RinexNavStore* pStore)
+    {
+        pEphStore = pStore;
+    };
+
+    // Any orbit/clock source, not just the broadcast one. SP3Store already
+    // implements EphStore (it carries a RINEX clock reader alongside the SP3
+    // orbits), so passing one here runs the whole solver on precise products
+    // without touching anything below this point.
+    void setEphStore(EphStore* pStore)
     {
         pEphStore = pStore;
     };
@@ -151,7 +161,10 @@ protected:
 
     SolverLSQ  solverLsq;
 
-    RinexNavStore* pEphStore;
+    // The orbit/clock source in use: a RinexNavStore by default (the only kind
+    // that exists below the app layer), an SP3Store when a run was handed
+    // precise products. Typed as the interface so both fit.
+    EphStore* pEphStore;
 
     // 测速解算实例
     SPPVelocity velSolver;

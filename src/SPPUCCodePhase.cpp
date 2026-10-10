@@ -66,8 +66,11 @@ void SPPUCCodePhase::solve(ObsData &obsData) {
     //----------------------
     // 得到卫星发射时刻位置和钟差、相对论和TGD后，改正观测值延迟，并更新C1/C2等观测值
     //----------------------
-    // todo:
-    // correctTGD(obsData);
+    // 由 enableBDSTGD 在函数内部把关，所以这里无条件调用，与基类 SPPIFCode::solve() 一致。
+    // 它直接改写 obsData 里的原始 C1/C2/C7，必须在任何方程生成之前。
+    // GPS 上是空操作：它的 TGD 已在 NavEphGPS 里折进卫星钟差，这个分支减的是 0；
+    // 真正起作用的是北斗（TGD1 改 C2、TGD2 改 C7）。默认关闭，见 config/rtk.ini。
+    correctTGD(obsData, satXvtTransTime);
 
     xyz = obsData.antennaPosition;
     dxyz = {100, 100, 100};
@@ -106,6 +109,7 @@ void SPPUCCodePhase::solve(ObsData &obsData) {
         {
             satElevData.clear();
             satAzimData.clear();
+            satTropData.clear();
             if(debug)
                 cout << "computeElevAzim" << endl;
 
@@ -117,9 +121,14 @@ void SPPUCCodePhase::solve(ObsData &obsData) {
                 cout << satElevData << endl;
             }
 
-            // todo:
-            // computeIonoDelay();
-            // computeTropDealy();
+            // 斜对流层延迟必须在迭代循环里算，不能只算一次：它同时依赖 xyz（天顶延迟
+            // 用测站纬度高程）和 satElevData（刚由 xyz 算出），而 xyz 每轮迭代都在变。
+            // 必须在下面的 linearize() 之前，因为后者要读 satTropData。
+            // 关闭时 satTropData 为空，linearize 读到的斜延迟恒为 0，与改动前逐字节相同。
+            if(enableTrop)
+            {
+                computeTropDelay(xyz, satXvtRecTime, satElevData);
+            }
         }
 
         equSys = linearize(xyz, satXvtRecTime, satElevData, obsData);
@@ -137,14 +146,75 @@ void SPPUCCodePhase::solve(ObsData &obsData) {
 
         xyz += dxyz;
 
-        cout
-        << "iteration:"<< iter
-        << "dxyz:"<< dxyz.transpose()
-        << "xyz:" << xyz.transpose() << endl;
-
+        // 逐历元打印，所以走 debug 门：它在 1 Hz 的整日文件上是几万行 stdout，
+        // 而只影响 stdout、不参与任何数值计算。
+        if (debug) {
+            cout
+            << "iteration:"<< iter
+            << "dxyz:"<< dxyz.transpose()
+            << "xyz:" << xyz.transpose() << endl;
+        }
 
         // convergence threshold
         if (dxyz.norm() < 0.1) {
+
+            // 诊断：把这一历元的验后残差与解出的未知数打出来。
+            //
+            // 这是判断「模型是否自洽」的唯一直接证据。零基线那套数据上，SPP 的
+            // 最小二乘最优解落在离参考点 20–30 m 的地方，而同一条方程组做的双差
+            // 却准到 1 cm。残差是厘米级还是米级，决定了那个 20 m 是「模型自洽但
+            // 系统性错」还是「模型根本拟合不上」——见 docs/rtk.md 第十一节。
+            //
+            // 残差是最后一次迭代在 xyz 处的验后残差（收敛时 |dxyz| < 0.1 m，
+            // 线性化点与解相差不到 10 cm）。
+            if (debug) {
+                VectorXd st = solverLsq.getState();
+                int nObs = (int) equSys.obsEquData.size();
+                int nUnk = (int) equSys.varSet.size();
+
+                VectorXd pre = VectorXd::Zero(nObs);
+                MatrixXd H = MatrixXd::Zero(nObs, nUnk);
+                int i = 0;
+                for (auto &ed : equSys.obsEquData) {
+                    pre(i) = ed.second.prefit;
+                    for (auto &vc : ed.second.varCoeffData) {
+                        auto it = equSys.varSet.find(vc.first);
+                        if (it != equSys.varSet.end())
+                            H(i, (int) std::distance(equSys.varSet.begin(), it)) = vc.second;
+                    }
+                    ++i;
+                }
+
+                cout << "=== SPP probe: nObs " << nObs << " nUnk " << nUnk
+                     << "  |dxyz| " << dxyz.norm() << " m" << endl;
+                cout << "    linearized at: " << xyz.transpose() << endl;
+
+                if (st.size() == nUnk) {
+                    VectorXd v = H * st - pre;
+                    std::map<std::string, std::pair<int, double> > acc;
+                    i = 0;
+                    for (auto &ed : equSys.obsEquData) {
+                        std::pair<int, double> &a = acc[ed.first.obsType];
+                        a.first += 1;
+                        a.second += v(i) * v(i);
+                        ++i;
+                    }
+                    double all = 0.0;
+                    for (auto &kv : acc) all += kv.second.second;
+                    cout << "    post-fit residual RMS  all = "
+                         << std::sqrt(all / std::max(1, nObs)) << " m" << endl;
+                    for (auto &kv : acc) {
+                        cout << "      " << kv.first << ": "
+                             << std::sqrt(kv.second.second / std::max(1, kv.second.first))
+                             << " m  (" << kv.second.first << " obs)" << endl;
+                    }
+                    cout << "    state:" << endl;
+                    int k = 0;
+                    for (auto &var : equSys.varSet)
+                        cout << "      [" << k << "] " << var << " = " << st(k++) << endl;
+                }
+            }
+
             break;
         }
 
@@ -207,6 +277,16 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
     // numeric reads this field, which is why the omission was invisible.
     equSys.station = obsData.station;
     VariableSet varSetTemp;
+
+    // The residual zenith tropospheric delay: one station-level unknown, the
+    // correction to whatever the model already applied (nothing, if the model is
+    // off). Its coefficient is added to every equation at the end of this
+    // function, so no branch below can forget it.
+    Variable ztd(obsData.station, Parameter::trop);
+    if (estimateTrop) {
+        varSetTemp.insert(ztd);
+    }
+
     for (auto stv: obsData.satTypeValueData) {
         SatID sat = stv.first;
 
@@ -237,8 +317,10 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
         double relCorr = satXvtRecTime.at(sat).relcorr * C_MPS;
 
         double slantTrop(0.0);
-        // to do
-        // extract slant trop
+        // 取出上面（迭代循环里）算好的斜对流层延迟。与基类 SPPIFCode::linearize()
+        // 的读法一致。关闭时 satTropData 为空，这里保持 0。
+        if (enableTrop && satTropData.count(sat))
+            slantTrop = satTropData[sat];
 
         if(debug)
         {
@@ -548,6 +630,23 @@ EquSys SPPUCCodePhase::linearize(Eigen::Vector3d& xyz,
 
         }
     }
+    // 天顶对流层改正数：站级未知数，每颗星用**同一颗星的仰角**对应的湿映射函数
+    // 作系数——与模型湿分量用的映射完全一致（SPPIFCode::computeTropDelay），
+    // 所以估出来的是"模型还差多少"，不是另起一套模型。放在这里统一加，
+    // 免得四个频率分支里漏掉一个。仰角低于截止角的卫星上面已经 continue，
+    // 不会出现在 obsEquData 里。
+    if (estimateTrop) {
+        for (auto &ev : equSys.obsEquData) {
+            auto elevIt = satElevData.find(ev.first.sat);
+            if (elevIt == satElevData.end()) {
+                continue;
+            }
+            const double sinE = std::sin(elevIt->second * DEG_TO_RAD);
+            ev.second.varCoeffData[ztd] =
+                    (sinE > 0.001) ? 1.0 / (sinE + 0.00095) : 0.0;
+        }
+    }
+
     equSys.varSet = varSetTemp;
 
     return equSys;

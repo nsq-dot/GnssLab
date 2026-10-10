@@ -248,7 +248,10 @@ public:
     enum ParameterName { // 显式指定底层类型为int
         Unknown = 0, dX, dY, dZ, cdt,cdtBDS,
         dVX, dVY, dVZ, cdtDot, cdtDotBDS, // 测速新增
-        ifb, iono, ambiguity, count
+        // trop：天顶对流层延迟的改正数，站级未知数（系数取湿映射函数）。
+        // 新值一律加在 ambiguity 之后、count 之前——否则已有参数的数值会变，
+        // 而那些数值被写进过文件（诊断列、manifest）。
+        ifb, iono, ambiguity, trop, count
     };
 
     Parameter() {}

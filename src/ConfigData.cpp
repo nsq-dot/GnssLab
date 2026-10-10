@@ -247,6 +247,12 @@ RTKConfigData RTKConfigData::defaults() {
 
     c.cutOffElevation = 10.0;
 
+    // Both off, for the same reason as fixAmbiguity: the corrections move the
+    // rover's single-point position and the rtk: column is computed from it, so
+    // a default run has to stay byte-identical to what it was.
+    c.enableTrop = false;
+    c.enableBDSTGD = false;
+
     // Off, so that the default run stays byte-identical to the original
     // program's output (see the field's comment in ConfigData.h).
     // Least squares, so that a default run is byte-for-byte what it was.
@@ -274,6 +280,8 @@ RTKConfigData RTKConfigData::fromIni(const std::string &path) {
     c.sys = reader.getValueAsStringOr("sys", c.sys);
 
     c.cutOffElevation = reader.getValueAsDoubleOr("cutOffElevation", c.cutOffElevation);
+    c.enableTrop = reader.getValueAsBoolOr("enableTrop", c.enableTrop);
+    c.enableBDSTGD = reader.getValueAsBoolOr("enableBDSTGD", c.enableBDSTGD);
 
     c.estimator = reader.getValueAsStringOr("estimator", c.estimator);
     c.estimateISB = reader.getValueAsBoolOr("estimateISB", c.estimateISB);

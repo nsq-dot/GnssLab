@@ -33,10 +33,15 @@ noexcept(false) {
         cout << setprecision(10) << "bias:" << clkData.clockBias << "drift:" << clkData.clockDrift << endl;
     }
 
-    // 相对论改正
-    xvt.relcorr = -2.0 * ((xvt.x[0] / C_MPS) * (xvt.v[0] / C_MPS)
-                          + (xvt.x[1] / C_MPS) * (xvt.v[1] / C_MPS)
-                          + (xvt.x[2] / C_MPS) * (xvt.v[2] / C_MPS));
+    // 相对论改正。精密钟差产品里已经包含这一项，所以用它跑定位解算时必须
+    // 关掉（见 addRelativity 的注释），否则重复计入 ±7 m。
+    if (addRelativity) {
+        xvt.relcorr = -2.0 * ((xvt.x[0] / C_MPS) * (xvt.v[0] / C_MPS)
+                              + (xvt.x[1] / C_MPS) * (xvt.v[1] / C_MPS)
+                              + (xvt.x[2] / C_MPS) * (xvt.v[2] / C_MPS));
+    } else {
+        xvt.relcorr = 0.0;
+    }
     return xvt;
 
 }

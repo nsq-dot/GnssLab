@@ -80,6 +80,8 @@
  *   --out-dir <dir>       Output directory
  *   --stop <ISO8601>      Stop epoch, e.g. 2022-03-03T06:49:00
  *   --sys <mode>          gps | bds2 | bds3  (default: gps)
+ *   --trop                Apply the troposphere-delay correction (off by default)
+ *   --bds-tgd             Apply the BeiDou TGD correction (bds* only, off by default)
  *   --fix                 Resolve the ambiguities and write the fixed solution
  *   --ratio <x>           Ratio-test threshold (default: 3.0)
  *   --dump-epoch <sod>    Print the double-difference system for one epoch
@@ -110,6 +112,8 @@
 #include "TimeConvert.h"
 #include "GnssFunc.h"
 #include "RinexNavStore.hpp"
+#include "SP3Store.hpp"
+#include "CarrierSmoother.h"
 #include "RinexObsReader.h"
 #include "SPPUCCodePhase.h"
 #include "CSDetector.h"
@@ -145,6 +149,25 @@ void printUsage(const char *prog) {
     cout <<
          "  --isb              Estimate the receiver inter-system bias between\n"
          "                     BDS-2 and BDS-3 (only meaningful for --sys bds23)\n"
+         "  --trop             Apply the troposphere-delay correction in the\n"
+         "                     single-point solves. Off by default; it moves the\n"
+         "                     spp: column, and with it the byte-anchored rtk: one\n"
+         "  --bds-tgd          Apply the BeiDou broadcast TGD correction in the\n"
+         "                     single-point solves. bds2/bds3/bds23 only - GPS\n"
+         "                     already has its TGD folded into the satellite clock\n"
+         "  --sp3 <file>       Precise orbit (SP3). With --clk, both single-point\n"
+         "  --clk <file>       solves run on precise orbits and clocks instead of\n"
+         "                     the broadcast ephemeris. Both are required together;\n"
+         "                     the precise clock already carries the relativistic\n"
+         "                     term, so the store must not add it again\n"
+         "  --smooth <N>       Hatch-smooth the code with its carrier before the\n"
+         "                     single-point solves, window N epochs (0 = off, the\n"
+         "                     default). Moves the spp: column, and the rtk: one\n"
+         "                     with it, so the byte-exact anchor needs it off\n"
+         "  --est-trop         Estimate the residual zenith tropospheric delay as\n"
+         "                     a station unknown instead of trusting the model.\n"
+         "                     Combine with --trop to correct the model, or use\n"
+         "                     alone to estimate the whole delay\n"
          "  --fix              Resolve ambiguities to integers (MLAMBDA) and\n"
          "                     write <rover>_<sys>_rtk_fixed.out as well\n"
          "  --ratio <x>        Ratio-test threshold for accepting a fix, >= 1\n"
@@ -179,6 +202,11 @@ struct DdDiag {
 ///
 /// Takes the state vector rather than a solver, because there are two solvers
 /// now and both expose getState().
+
+/* 把双差设计阵重新拼出来，算秩、条件数、验后残差 σ₀、postfit RMS
+库里没人检查拟合好坏，SolverLSQ::solve算完就停——一个烂历元从输出文件看跟好历元一模一样。
+这几个数是唯一能看出来的地方。*/
+
 DdDiag diagnoseDd(const EquSys &equSys, const VectorXd &state) {
     DdDiag d;
     d.nObs = (int) equSys.obsEquData.size();
@@ -233,7 +261,13 @@ DdDiag diagnoseDd(const EquSys &equSys, const VectorXd &state) {
 /// comes back empty. Picking the highest-elevation satellite that actually has
 /// equations in the between-station system removes that failure outright; on the
 /// reference dataset it selects the same satellite as before.
-SatID pickDatumSat(const EquSys &equSysSD, const SatValueMap &satElevData, bool &usedFallback) {
+
+/*原来的 SPPIFCode::getDatumSat()只按流动站能看到谁选最高仰角，完全不管基准站。
+万一基准站没跟踪那颗星，站间差分后它的方程全没了，星间差分就找不到基准方程可减，整个双差系统直接空掉。
+这里改成"在站间差分后还活着的卫星里挑最高仰角"，从根上消掉这个失败模式；
+同时用usedFallback 报告这次选择是否跟"只看流动站"的选择不同，免得悄悄换了基准星没人发现。*/
+
+    SatID pickDatumSat(const EquSys &equSysSD, const SatValueMap &satElevData, bool &usedFallback) {
     set<SatID> sdSats;
     for (const auto &oe : equSysSD.obsEquData)
         sdSats.insert(oe.first.sat);
@@ -311,7 +345,7 @@ double stateValue(const EquSys &equSys, const VectorXd &state,
 int main(int argc, char *argv[]) {
 
     //---------------------------------------------------------------
-    // Command line
+    // Command line 命令行解析
     //---------------------------------------------------------------
     string configFile = "config/rtk.ini";
     bool haveConfigArg = false;
@@ -319,12 +353,25 @@ int main(int argc, char *argv[]) {
     string optObs, optBaseObs, optNav, optOutDir, optStop, optSys;
     string optRatio;
     bool optIsb = false;
+    bool optTrop = false;
+    bool optBdsTgd = false;
     bool optDumpCs = false;
     bool optVerbose = false;
     // "lsq" (default) or "kalman"; empty means "take it from the config".
     string optEstimator;
     bool optFix = false;
     double optDumpSod = -1.0;
+    // Precise products, both or neither: --sp3 <orbit file> --clk <clock file>.
+    // With them the single-point solves run on IGS/CODE orbits and clocks
+    // instead of the broadcast ephemeris, which is how the chapter measures
+    // what the broadcast ephemeris was costing the spp: column.
+    string optSp3;
+    string optClk;
+    // Hatch carrier-smoothing window in epochs; 0 leaves the code raw, which
+    // is what every byte-anchored run in this chapter used.
+    int optSmooth = 0;
+    // Estimate the residual zenith tropospheric delay as a station unknown.
+    bool optEstTrop = false;
 
     for (int i = 1; i < argc; ++i) {
         string a = argv[i];
@@ -345,11 +392,17 @@ int main(int argc, char *argv[]) {
         else if (a == "--stop")       optStop = needValue("--stop");
         else if (a == "--sys")        optSys = needValue("--sys");
         else if (a == "--isb")        optIsb = true;
+        else if (a == "--trop")       optTrop = true;
+        else if (a == "--bds-tgd")    optBdsTgd = true;
         else if (a == "--dump-cs")    optDumpCs = true;
         else if (a == "--estimator")  optEstimator = needValue("--estimator");
         else if (a == "--fix")        optFix = true;
         else if (a == "--ratio")      optRatio = needValue("--ratio");
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
+        else if (a == "--sp3")        optSp3 = needValue("--sp3");
+        else if (a == "--clk")        optClk = needValue("--clk");
+        else if (a == "--smooth")     optSmooth = std::stoi(needValue("--smooth"));
+        else if (a == "--est-trop")   optEstTrop = true;
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
             cerr << "Error: unknown option '" << a << "'\n";
@@ -365,7 +418,7 @@ int main(int argc, char *argv[]) {
     }
 
     //---------------------------------------------------------------
-    // Configuration
+    // Configuration 配置
     //---------------------------------------------------------------
     RTKConfigData cfg = RTKConfigData::defaults();
     string configDir;
@@ -403,6 +456,8 @@ int main(int argc, char *argv[]) {
     if (!optStop.empty())    cfg.stopUTC = optStop;
     if (!optSys.empty())     cfg.sys = optSys;
     if (optIsb)              cfg.estimateISB = true;
+    if (optTrop)             cfg.enableTrop = true;
+    if (optBdsTgd)           cfg.enableBDSTGD = true;
     if (!optEstimator.empty()) cfg.estimator = optEstimator;
     if (cfg.estimator != "lsq" && cfg.estimator != "kalman") {
         cerr << "Error: estimator must be 'lsq' or 'kalman', got '"
@@ -460,6 +515,8 @@ int main(int argc, char *argv[]) {
         cout << "estimator : " << cfg.estimator << "\n";
         cout << "isb       : "
              << (cfg.estimateISB ? "yes (BDS-3 relative to BDS-2)" : "no") << "\n";
+        cout << "trop      : " << (cfg.enableTrop ? "yes" : "no") << "\n";
+        cout << "bds-tgd   : " << (cfg.enableBDSTGD ? "yes" : "no") << "\n";
     }
 
     if (!ensureDirectory(outDir)) {
@@ -509,7 +566,7 @@ int main(int argc, char *argv[]) {
     }
 
     //---------------------------------------------------------------
-    // Observation types and solver setup
+    // Observation types and solver setup 观测类型与解算器设置
     //---------------------------------------------------------------
     // The reader selects on the RAW three-character names; SPPUCCodePhase then
     // keys everything off the collapsed two-character pair. Both come from the
@@ -528,14 +585,55 @@ int main(int argc, char *argv[]) {
     readObsBase.setFileStream(&baseObsStream);
     readObsBase.setSelectedTypes(selectedTypes);
 
+    // Orbit/clock source for the two single-point solves. Broadcast by
+    // default; with --sp3 + --clk the identical solver runs on precise
+    // products, which is the only way to separate "this SPP cannot do better"
+    // from "the broadcast ephemeris is what it is". SP3Store carries its own
+    // RINEX clock reader, and its relativity flag must be OFF here: the precise
+    // clock already contains that term.
+    SP3Store sp3Store;
+    if (!optSp3.empty() || !optClk.empty()) {
+        if (optSp3.empty() || optClk.empty()) {
+            cerr << "Error: --sp3 and --clk must be given together\n";
+            return 2;
+        }
+        try {
+            sp3Store.loadSP3File(optSp3);
+            sp3Store.loadRinexClockFile(optClk);
+        } catch (const std::exception &e) {
+            cerr << "Error: cannot load precise products\n"
+                 << "       " << e.what() << "\n";
+            return 1;
+        }
+        sp3Store.addRelativity = false;
+        cout << "orbit/clock: precise (SP3 + CLK)\n"
+             << "  sp3 : " << optSp3 << "\n"
+             << "  clk : " << optClk << "\n";
+    }
+
     SPPUCCodePhase sppRover;
-    sppRover.setRinexNavStore(&navStore);
+    if (!optSp3.empty()) {
+        sppRover.setEphStore(&sp3Store);
+    } else {
+        sppRover.setRinexNavStore(&navStore);
+    }
     sppRover.setDualCodeTypes(dualCodeTypes);
     sppRover.setCutOffElev(cfg.cutOffElevation);
     sppRover.setEstimateISB(cfg.estimateISB);
+    // Set explicitly, on BOTH receivers. This is not a formality: SPPIFCode's
+    // constructor initialises both flags to TRUE and SPPUCCodePhase's own
+    // constructor does not reset them. Left alone they would turn the
+    // corrections on and move the byte-anchored rtk: column.
+    sppRover.setTropEnable(cfg.enableTrop);
+    sppRover.setEstimateTrop(optEstTrop);
+    sppRover.setBDSTGDEnable(cfg.enableBDSTGD);
 
     SPPUCCodePhase sppBase;
-    sppBase.setRinexNavStore(&navStore);
+    if (!optSp3.empty()) {
+        sppBase.setEphStore(&sp3Store);
+    } else {
+        sppBase.setRinexNavStore(&navStore);
+    }
     sppBase.setStationAsBase();
     sppBase.setDualCodeTypes(dualCodeTypes);
     sppBase.setCutOffElev(cfg.cutOffElevation);
@@ -545,6 +643,14 @@ int main(int argc, char *argv[]) {
     // configured identically, which is easier to reason about than an asymmetry
     // that happens to be harmless.
     sppBase.setEstimateISB(cfg.estimateISB);
+    // The corrections, unlike the bias above, DO have to be set on both sides:
+    // the base's prefit is what the rover's is differenced against, so a term
+    // modelled on one side only would not cancel. On a zero baseline the two
+    // receivers share an antenna, and modelling both is what makes the
+    // troposphere cancel - the behaviour to want, not an accident.
+    sppBase.setTropEnable(cfg.enableTrop);
+    sppBase.setEstimateTrop(optEstTrop);
+    sppBase.setBDSTGDEnable(cfg.enableBDSTGD);
 
     // Tell the cycle-slip detectors which bands this mode uses.
     //
@@ -623,7 +729,19 @@ int main(int argc, char *argv[]) {
     // thing ratio 0 means when fixing is on: no integer solution was available.
     diagStream << "sod,nRoverEq,nSD,nDD,nUnk,rank,cond,datumSat,datumFallback,"
                   "nSDsats,absDxyz,sigma0,postfitRms,"
-                  "nAmb,ratio,fixed,absDxyzFixed,isb\n";
+                  "nAmb,ratio,fixed,absDxyzFixed,isb,"
+                  // The same conditioning numbers for the ROVER's own
+                  // single-point system, before any differencing. There are two
+                  // reasons they are here. First, the DD columns above describe
+                  // the double-difference system, which is not where the spp:
+                  // column's error comes from. Second, and the reason this was
+                  // added: whether the troposphere correction helps the spp:
+                  // column (it should, by decoupling the zenith coordinate from
+                  // the receiver clock) or whether nothing helps it (which would
+                  // mean the system is ill-conditioned and the cure is
+                  // constraints, not a model) is decided by whether sppCond
+                  // moves. See docs/rtk.md.
+                  "sppNObs,sppNUnk,sppRank,sppCond\n";
     diagStream << fixed << setprecision(6);
 
     // --- the cycle-slip wiring, when asked for ------------------------------
@@ -657,6 +775,14 @@ int main(int argc, char *argv[]) {
     long skipNoSd = 0, skipNoDd = 0, skipDatumFallback = 0;
     long fixedEpochs = 0;      // epochs whose ratio cleared the threshold
 
+    // One smoother serves both stations: its state is keyed by station name.
+    CarrierSmoother smoother;
+    if (optSmooth > 0) {
+        smoother.setWindow(optSmooth);
+        cout << "carrier smoothing: Hatch filter, window " << optSmooth
+             << " epochs\n";
+    }
+
     while (true) {
         ObsData roverData;
         try {
@@ -671,6 +797,13 @@ int main(int argc, char *argv[]) {
         double sod = ydst.sod;
 
         // --- rover: single-point positioning ---------------------------------
+        // Hatch-smooth the code with its carrier first, when asked. This is
+        // what a receiver's own firmware does and what its reported position
+        // reflects; without it the two disagree by everything the site adds to
+        // the code, which the double difference then cancels silently.
+        if (optSmooth > 0) {
+            smoother.smooth(roverData);
+        }
         try {
             sppRover.solve(roverData);
         }
@@ -698,6 +831,9 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        if (optSmooth > 0) {
+            smoother.smooth(baseData);
+        }
         try {
             sppBase.solve(baseData);
         }
@@ -765,6 +901,12 @@ int main(int argc, char *argv[]) {
             // The price is one rank deficiency, which the textbook removes with
             // a constraint equation (8.3.4.3) - that is ambiguityDatum(), and it
             // must be added before the solve.
+            /*
+            - 卡尔曼走五参数重载——它保留基准星自己的模糊度（系数 −λ），所以模糊度变量是站间单差模糊度，意义不依赖基准星是哪颗。
+              滤波器必须跨历元传这些量，而基准星一次运行里要换两三次。代价是秩亏 1，得靠教材 (8.3.4.3) 的约束方程补上（就是
+              ambiguityDatum()，必须在求解前加）；
+            - 最小二乘走三参数重载，把基准星模糊度直接差掉；
+            */
             differenceSat(datumSat, equSysSD, csFlagSd, equSysDD, csFlagDd);
         } else {
             differenceSat(datumSat, equSysSD, equSysDD);
@@ -880,6 +1022,11 @@ int main(int argc, char *argv[]) {
             if (v.getParaType() == Parameter::ambiguity) ++nAmb;
 
         DdDiag diag = diagnoseDd(equSysDD, stateVec);
+        // The rover's single-point system, as it was linearized (getEquSys()
+        // hands back a copy, and differenceStation only reads it). Passing an
+        // empty state leaves sigma0/postfitRms at 0 - rank and cond need the
+        // design matrix alone, which is all this asks of it.
+        DdDiag sppDiag = diagnoseDd(equSysRover, VectorXd());
 
         diagStream << sod << ","
                    << equSysRover.obsEquData.size() << ","
@@ -898,7 +1045,11 @@ int main(int argc, char *argv[]) {
                    << ratio << ","
                    << (fixedAccepted ? 1 : 0) << ","
                    << dxyzFixed.norm() << ","
-                   << stateValue(equSysDD, stateVec, Parameter::ifb) << "\n";
+                   << stateValue(equSysDD, stateVec, Parameter::ifb) << ","
+                   << sppDiag.nObs << ","
+                   << sppDiag.nUnk << ","
+                   << sppDiag.rank << ","
+                   << sppDiag.cond << "\n";
 
         printSolution(solStream, epoch, xyzRover, xyzRTKFloat);
         if (cfg.fixAmbiguity)
@@ -978,6 +1129,11 @@ int main(int argc, char *argv[]) {
         mf << "  \"sysLabel\": \"" << jsonEscape(mode.label) << "\",\n";
         mf << "  \"estimator\": \"" << jsonEscape(cfg.estimator) << "\",\n";
         mf << "  \"isbEstimated\": " << (cfg.estimateISB ? "true" : "false") << ",\n";
+        // The two single-point corrections. Recorded because they move the spp:
+        // column and, through rtk: = xyzRover + dxyzRTK, can move the rtk: one -
+        // so a run's own numbers are not comparable to another's without them.
+        mf << "  \"tropEnabled\": " << (cfg.enableTrop ? "true" : "false") << ",\n";
+        mf << "  \"bdsTgdEnabled\": " << (cfg.enableBDSTGD ? "true" : "false") << ",\n";
         // A list, because a merged BDS-2 + BDS-3 mode has one pair per
         // generation. The single-generation modes still write exactly one.
         mf << "  \"codePairs\": [";

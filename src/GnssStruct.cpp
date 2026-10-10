@@ -21,8 +21,13 @@
 //====
 
 // 初始化静态成员
+// 必须与 GnssStruct.h 的 ParameterName 逐项对应、个数一致：toString() 按下标取，
+// toParameterName() 按下标回指。此前这张表只有 8 项而枚举有 14 项，于是 cdtBDS
+// 之后的每一个参数取名字都会越界读（测速与 ifb/iono/ambiguity 都受影响）。
 const string Parameter::paraNameStrings[] = {
-        "Unknown", "dX", "dY", "dZ", "cdt", "ifb", "iono", "ambiguity"
+        "Unknown", "dX", "dY", "dZ", "cdt", "cdtBDS",
+        "dVX", "dVY", "dVZ", "cdtDot", "cdtDotBDS",
+        "ifb", "iono", "ambiguity", "trop"
 };
 
 bool Variable::operator<(const Variable &right) const {

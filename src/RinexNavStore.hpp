@@ -28,10 +28,14 @@
 #include "NavEphGPS.hpp"
 #include "GnssStruct.h"
 #include "NavEphBDS.hpp"
+// The broadcast store is one *source* of satellite orbits and clocks; SP3Store
+// is the other. Deriving from EphStore is what lets a solver be handed either
+// one - see SPPIFCode::setEphStore.
+#include "EphStore.h"
 
 using namespace std;
 
-class RinexNavStore {
+class RinexNavStore : public EphStore {
 public:
 
     RinexNavStore() {};
@@ -39,7 +43,7 @@ public:
     void loadGPSEph(NavEphGPS &gpsEph, string &line, fstream &navFile);
     void loadBDSEph(NavEphBDS &bdsEph, string &line, fstream &navFile);
     void loadFile(string &file);
-    Xvt getXvt(const SatID &sat, const CommonTime &epoch);
+    virtual Xvt getXvt(const SatID &sat, const CommonTime &epoch);
     NavEphGPS findGPSEph(const SatID &sat, const CommonTime &epoch);
     NavEphBDS findBDSEph(const SatID &sat, const CommonTime &epoch);
     bool ifBDS_GEO(const SatID& sat) const;

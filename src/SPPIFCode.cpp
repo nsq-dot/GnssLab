@@ -222,9 +222,13 @@ noexcept(false) {
 
 void SPPIFCode::correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTime)
 {
+    // 下面每一处打印都走 debug 门（本文件顶部的 GNSSLAB_DEBUG_SPP）。这个函数在
+    // 逐历元逐卫星的循环里，而 RTK 那条路现在也会调用它——1 Hz 的整日文件上不打门
+    // 就是几万行 stdout。打印不参与任何数值计算。
     if (!enableBDSTGD)
     {
-        cout << "[TGD DEBUG] BDS TGD correction disabled, skip all satellites" << endl;
+        if(debug)
+            cout << "[TGD DEBUG] BDS TGD correction disabled, skip all satellites" << endl;
         return;
     }
 
@@ -233,7 +237,8 @@ void SPPIFCode::correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTim
         SatID sat = stv.first;
         if (!satXvtTransTime.count(sat))
         {
-            cout << "[TGD DEBUG] Sat " << sat.toString() << " not found in satXvtTransTime, skip" << endl;
+            if(debug)
+                cout << "[TGD DEBUG] Sat " << sat.toString() << " not found in satXvtTransTime, skip" << endl;
             continue;
         }
         Xvt satXvt = satXvtTransTime[sat];
@@ -244,7 +249,8 @@ void SPPIFCode::correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTim
         {
             double TGD = satXvt.typeTGDData["TGD"];
             corr = TGD * C_MPS;
-            cout << "[TGD DEBUG] GPS Sat " << sat.toString() << " TGD=" << TGD << "s, corr=" << corr << "m" << endl;
+            if(debug)
+                cout << "[TGD DEBUG] GPS Sat " << sat.toString() << " TGD=" << TGD << "s, corr=" << corr << "m" << endl;
             if (stv.second.count("C1")) stv.second["C1"] -= corr;
             if (stv.second.count("C2")) stv.second["C2"] -= corr;
         }
@@ -256,19 +262,26 @@ void SPPIFCode::correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTim
             double corr1 = TGD1 * C_MPS;
             double corr2 = TGD2 * C_MPS;
 
-            cout << "[TGD DEBUG] Sat " << sat.toString()
-                 << " TGD1=" << TGD1 << "s, corr1=" << corr1 << "m | "
-                 << "TGD2=" << TGD2 << "s, corr2=" << corr2 << "m" << endl;
+            if(debug)
+                cout << "[TGD DEBUG] Sat " << sat.toString()
+                     << " TGD1=" << TGD1 << "s, corr1=" << corr1 << "m | "
+                     << "TGD2=" << TGD2 << "s, corr2=" << corr2 << "m" << endl;
 
+            // 原始值只在调试时读一次，所以拆成两段打印——否则 debug 关掉时
+            // rawC2/rawC7 会变成未使用的变量。
             if (stv.second.count("C2")) {
-                double rawC2 = stv.second["C2"];
+                if(debug)
+                    cout << "[TGD DEBUG] C2 raw obs:" << stv.second["C2"] << " -> ";
                 stv.second["C2"] -= corr1;
-                cout << "[TGD DEBUG] C2 raw obs:" << rawC2 << " -> corrected:" << stv.second["C2"] << endl;
+                if(debug)
+                    cout << "corrected:" << stv.second["C2"] << endl;
             }
             if (stv.second.count("C7")) {
-                double rawC7 = stv.second["C7"];
+                if(debug)
+                    cout << "[TGD DEBUG] C7 raw obs:" << stv.second["C7"] << " -> ";
                 stv.second["C7"] -= corr2;
-                cout << "[TGD DEBUG] C7 raw obs:" << rawC7 << " -> corrected:" << stv.second["C7"] << endl;
+                if(debug)
+                    cout << "corrected:" << stv.second["C7"] << endl;
             }
         }
     }
@@ -574,27 +587,33 @@ std::map<SatID, double> SPPIFCode::computeKlobucharIono(
         else if (sys == "C") h_ion = 375000.0; // BDS 375km
         else h_ion = 350000.0;
 
-        // 读取广播星历电离层参数（改用类内pEphStore）
+        // 读取广播星历电离层参数。Klobuchar 系数只存在于广播导航电文里，
+        // 所以这里必须拿到 RinexNavStore；用 SP3 精密产品跑的时候拿不到，
+        // 那几个系数就保持 0（本函数当前无人调用，见头文件注记）。
         double alpha[4] = {0}, beta[4] = {0};
+        RinexNavStore* navStore = dynamic_cast<RinexNavStore*>(pEphStore);
+        if (navStore == nullptr) {
+            continue;
+        }
         if (sys == "G") {
-            alpha[0] = pEphStore->ionoCorrData["GPSA"][0];
-            alpha[1] = pEphStore->ionoCorrData["GPSA"][1];
-            alpha[2] = pEphStore->ionoCorrData["GPSA"][2];
-            alpha[3] = pEphStore->ionoCorrData["GPSA"][3];
-            beta[0]  = pEphStore->ionoCorrData["GPSB"][0];
-            beta[1]  = pEphStore->ionoCorrData["GPSB"][1];
-            beta[2]  = pEphStore->ionoCorrData["GPSB"][2];
-            beta[3]  = pEphStore->ionoCorrData["GPSB"][3];
+            alpha[0] = navStore->ionoCorrData["GPSA"][0];
+            alpha[1] = navStore->ionoCorrData["GPSA"][1];
+            alpha[2] = navStore->ionoCorrData["GPSA"][2];
+            alpha[3] = navStore->ionoCorrData["GPSA"][3];
+            beta[0]  = navStore->ionoCorrData["GPSB"][0];
+            beta[1]  = navStore->ionoCorrData["GPSB"][1];
+            beta[2]  = navStore->ionoCorrData["GPSB"][2];
+            beta[3]  = navStore->ionoCorrData["GPSB"][3];
         }
         else if (sys == "C") {
-            alpha[0] = pEphStore->ionoCorrData["BDSA"][0];
-            alpha[1] = pEphStore->ionoCorrData["BDSA"][1];
-            alpha[2] = pEphStore->ionoCorrData["BDSA"][2];
-            alpha[3] = pEphStore->ionoCorrData["BDSA"][3];
-            beta[0]  = pEphStore->ionoCorrData["BDSB"][0];
-            beta[1]  = pEphStore->ionoCorrData["BDSB"][1];
-            beta[2]  = pEphStore->ionoCorrData["BDSB"][2];
-            beta[3]  = pEphStore->ionoCorrData["BDSB"][3];
+            alpha[0] = navStore->ionoCorrData["BDSA"][0];
+            alpha[1] = navStore->ionoCorrData["BDSA"][1];
+            alpha[2] = navStore->ionoCorrData["BDSA"][2];
+            alpha[3] = navStore->ionoCorrData["BDSA"][3];
+            beta[0]  = navStore->ionoCorrData["BDSB"][0];
+            beta[1]  = navStore->ionoCorrData["BDSB"][1];
+            beta[2]  = navStore->ionoCorrData["BDSB"][2];
+            beta[3]  = navStore->ionoCorrData["BDSB"][3];
         }
 
         double elev = elevDeg * PI / 180.0;

@@ -141,18 +141,27 @@ STRINGS: dict[str, dict[str, str]] = {
         # entries rather than reusing an axis or a constellation slot: in this
         # chapter blue/orange/aqua already mean E/N/U in one figure and the
         # three constellations in another.
-        "title_rtk_spp": "SPP vs RTK 3-D error, one panel per constellation "
-                         "({rover}, {n} epochs each)",
-        # "one window for all panels" is the load-bearing half of this label:
-        # the panels share a y range so that BDS-2's 1.13 m and BDS-3's 0.076 m
-        # do not look alike, which is section four's whole conclusion.
-        "axis_rtk_mag": "3-D error |d| [m] — log axis, one window for all panels",
+        "title_rtk_spp": "SPP vs RTK deviation from the reference, one panel per "
+                         "constellation ({rover}, {n} epochs each)",
+        # Both halves are load-bearing. "one window for all panels" is why
+        # BDS-2's 1.13 m and BDS-3's 0.076 m do not look alike, and "deviation"
+        # rather than "error" is what the axis actually measures: a distance
+        # from the base header coordinate, which this dataset cannot check.
+        "axis_rtk_mag": "deviation |d| [m] — log axis, one window for all panels",
+        # Short, as in the sibling figures (8-4's "RTK float").
         "legend_spp": "SPP",
         "legend_rtk": "RTK float",
-        "annot_rtk_vs_rms": "{method}: 3-D RMS {rms:.3f} m",
-        # {ratio} arrives already formatted ("330×", or "-" when the run
-        # collapsed onto the reference); the fallback is the console table's.
-        "annot_rtk_vs_gain": "SPP/RTK 3-D RMS improvement: {ratio}",
+        # {rms} is about the reference; {off} is the distance between the
+        # series' own mean and that reference, and is what separates the two
+        # bands. Printing it is the whole caveat on this figure, in one number:
+        # the SPP side is mostly offset, the RTK side's near-zero one is
+        # structural (double differencing resolves the rover relative to the
+        # base, whose position is the reference itself).
+        "annot_rtk_vs_rms": "{method}: 3-D RMS {rms:.3f} m  ·  offset {off:.3f} m",
+        # The raw ratio, the console table's rightmost column. The centred and
+        # epoch-to-epoch ratios live in section four, which says what each one
+        # is a ratio of.
+        "annot_rtk_vs_gain": "SPP/RTK 3-D RMS ratio: {ratio}",
 
         # --- the fixed solution (figures 8-4 and 8-5) ---
         "title_rtk_fix": "RTK float vs fixed 3-D error, one panel per "
@@ -179,6 +188,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_ratio": "{mode}: {rate:.1f}% accepted ({n} epochs)",
         "annot_ratio_thr": "threshold {thr} — left of this line is rejected",
 
+        # --- the estimator comparison (figure 8-6) ---
+        # Same length as axis_rtk_mag_fix, for the reason given above it.
+        "axis_rtk_mag_kalman": "3-D error |d| [m] — log axis, one window for all panels",
+        "title_rtk_kalman": "RTK float: single-epoch LSQ vs Kalman filter, one "
+                            "panel per constellation ({rover}, {n} epochs each)",
+        # Named for the estimators, not for "float" against "something else":
+        # both series here are float solutions, so 8-4's legend_float would read
+        # as if one of the two had been fixed.
+        "legend_lsq_float": "single-epoch LSQ (float)",
+        "legend_kalman_float": "Kalman filter (float, ambiguities carried)",
+        # {gain} arrives preformatted ("89.1×", or "-" when the Kalman RMS is
+        # zero), the convention annot_rtk_vs_gain uses, so that no zero or NaN
+        # can reach a format spec inside this string.
+        "annot_rtk_kalman": "{mode}: LSQ RMS {lrms:.3f} m  ·  Kalman RMS "
+                            "{krms:.3f} m  ·  gain {gain}  ·  |d|>1 m  {n1}/{n2}",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -204,8 +229,11 @@ STRINGS: dict[str, dict[str, str]] = {
                        "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
         "rpt_rtk_epochs": "{n} epochs per constellation, {nmodes} constellations",
 
-        "rpt_rtk_head": "SPP/RTK 3-D RMS improvement: {ratio}   "
-                        "(the one reference-independent number here)",
+        # Not "improvement", and not "reference-independent": the number is a
+        # ratio of two raw RMS figures, and the datum term is fully present in
+        # one of them. Note 2 says so at the foot of the same table.
+        "rpt_rtk_head": "SPP/RTK 3-D RMS ratio: {ratio}   "
+                        "(offsets included; see note 2)",
         "rpt_rtk_c_sys": "constellation",
         "rpt_rtk_c_system": "system",
         "rpt_rtk_c_epochs": "epochs",
@@ -257,12 +285,19 @@ STRINGS: dict[str, dict[str, str]] = {
             "is accepted as soon as |dxyz| < 0.1 m. Every epoch therefore "
             "reproduces the base header position plus the rover's last, "
             "unconverged correction — up to 0.1 m, and near-constant over the "
-            "run. Read sigma as the precision and the bias as that offset.",
+            "run. Read sigma as the precision and the bias as that offset. This "
+            "describes the RTK column only; the SPP column's offset is a "
+            "different thing (19-28 m here, and unexplained — section 4 and "
+            "figure 8-1).",
         "rpt_rtk_note_ratio":
-            "Note 2 — the SPP/RTK ratio is the one reference-independent number "
-            "in the table: both columns are differenced against the same base "
-            "header, so the header's own error (metre-to-decametre) cancels in "
-            "the ratio even though it does not cancel in either RMS.",
+            "Note 2 — the SPP/RTK ratio is NOT reference-independent. Both "
+            "columns are differenced against the same base header, but the RTK "
+            "column is built on it: double differencing resolves the rover "
+            "relative to the base, whose position is its own header coordinate. "
+            "The header's error therefore cancels in the RTK column by "
+            "construction and stays in full in the SPP column, where it is most "
+            "of the offset. The ratio carries that datum term with it; section 4 "
+            "and figure 8-1 separate the two.",
     },
     "zh": {
         "axis_sod": "秒内时刻 sod [s]",
@@ -371,13 +406,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_bar_plain": "{v:.4f}",
 
         # --- SPP 与 RTK 对比图（图 8-1）---
-        "title_rtk_spp": "SPP 与 RTK 三维误差时序，每个星座一个面板"
+        "title_rtk_spp": "SPP 与 RTK 相对参考坐标的三维偏差时序，每个星座一个面板"
                          "（{rover}，各 {n} 个历元）",
-        "axis_rtk_mag": "三维误差 |d| [m] —— 对数轴，三个面板共用同一窗口",
+        "axis_rtk_mag": "相对参考坐标的偏差 |d| [m] —— 对数轴，三面板共用窗口",
+        # 与同章的图 8-4 一样取短标签。
         "legend_spp": "SPP",
         "legend_rtk": "RTK 浮点解",
-        "annot_rtk_vs_rms": "{method}: 三维 RMS {rms:.3f} m",
-        "annot_rtk_vs_gain": "SPP/RTK 三维 RMS 提升倍数: {ratio}",
+        # {rms} 是相对参考坐标的；{off} 是该序列自己的均值离参考有多远，也正是把两组
+        # 带子拉开的那一项。把它印出来就是这张图全部的免责声明：SPP 那一侧主要是偏移，
+        # RTK 那侧贴近零是结构性的（双差把流动站解到基准站上，而基准站的位置就是参考）。
+        "annot_rtk_vs_rms": "{method}: 三维 RMS {rms:.3f} m · 偏移 {off:.3f} m",
+        # 原始 RMS 比——控制台表格最右列那个数。去均值比与逐历元比在第四节，
+        # 那里说清每个比值到底是谁比谁。
+        "annot_rtk_vs_gain": "SPP/RTK 三维 RMS 比: {ratio}",
 
         # --- 固定解（图 8-4、图 8-5）---
         "title_rtk_fix": "RTK 浮点解与固定解三维误差时序，每个星座一个面板"
@@ -393,6 +434,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "axis_ratio_share": "占本星座历元的比例 [%]",
         "annot_ratio": "{mode}: 接受 {rate:.1f}%（共 {n} 个历元）",
         "annot_ratio_thr": "阈值 {thr} —— 该线左侧全部被拒",
+
+        # --- 解算器对比（图 8-6）---
+        "axis_rtk_mag_kalman": "三维误差 |d| [m] —— 对数轴，三面板共用窗口",
+        "title_rtk_kalman": "RTK 浮点解：单历元最小二乘与卡尔曼滤波对比，"
+                            "每个星座一个面板（{rover}，各 {n} 个历元）",
+        "legend_lsq_float": "单历元最小二乘（浮点解）",
+        "legend_kalman_float": "卡尔曼滤波（浮点解，模糊度跨历元）",
+        "annot_rtk_kalman": "{mode}: 最小二乘 RMS {lrms:.3f} m  ·  卡尔曼 RMS "
+                            "{krms:.3f} m  ·  提升 {gain}  ·  |d|>1 m {n1}/{n2} 个",
 
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
@@ -418,13 +468,13 @@ STRINGS: dict[str, dict[str, str]] = {
                        "{x:.4f} {y:.4f} {z:.4f} m  [{src}]",
         "rpt_rtk_epochs": "每个星座 {n} 个历元，共 {nmodes} 个星座",
 
-        "rpt_rtk_head": "SPP/RTK 三维 RMS 改善比: {ratio}   （本表中唯一与参考坐标无关的数）",
+        "rpt_rtk_head": "SPP/RTK 三维 RMS 比: {ratio}   （含偏移，见说明 2）",
         "rpt_rtk_c_sys": "星座",
         "rpt_rtk_c_system": "信号组合",
         "rpt_rtk_c_epochs": "历元数",
         "rpt_rtk_c_spp": "SPP 三维RMS",
         "rpt_rtk_c_rtk": "RTK 三维RMS",
-        "rpt_rtk_c_ratio": "改善比",
+        "rpt_rtk_c_ratio": "SPP/RTK 比",
 
         "rpt_rtk_pct_head": "【三维误差模 |d| 的分位数】最后一列是与众不同的历元个数",
         "rpt_rtk_c_p50": "p50",
@@ -461,11 +511,15 @@ STRINGS: dict[str, dict[str, str]] = {
             "说明 1 —— 偏差不是精度指标，而是基准偏移。SPPUCCodePhase::solve 用基准站 "
             "RINEX 表头坐标建立基准站方程后直接返回（不再迭代），流动站则迭代到 "
             "|dxyz| < 0.1 m 即判收敛。因此每个历元的结果 = 基准站表头坐标 + 流动站最后一次"
-            "未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是精度，偏差应理解为这一偏移量。",
+            "未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是精度，偏差应理解为这一偏移量。"
+            "这一条只说 RTK 那一列；SPP 那一列的偏移是另一回事（本数据 19–28 m，来源未查清，"
+            "见第四节与图 8-1）。",
         "rpt_rtk_note_ratio":
-            "说明 2 —— SPP/RTK 改善比是本表中唯一与参考坐标无关的数：两列都对同一个基准站"
-            "表头作差，表头自身的误差（米级至十米级）在比值中被约掉，而在各自的 RMS 中"
-            "并不能被约掉。",
+            "说明 2 —— SPP/RTK 比值不是与参考坐标无关的数。两列虽然都对同一个基准站表头"
+            "作差，但 RTK 那一列是建立在这个表头之上的：双差把流动站解到基准站上去，而基准站"
+            "的位置就是它自己的表头坐标。所以表头自身的误差在 RTK 那一列里按构造抵消、在 SPP "
+            "那一列里全额保留（正是那个偏移的主要成分），比值里含的正是这个基准项。第四节与"
+            "图 8-1 把它拆成「偏移」与「残余」两半。",
     },
 }
 

@@ -38,13 +38,20 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
                                                   (3.0, 4.0, 12.0)),
                spp_offsets=((3.0, 4.0, 12.0), (0.0, 0.0, 0.0)),
                sod0=24517.0, n_diag=2,
-               fixed_ratios=None, fixed_offsets=None, threshold=3.0):
+               fixed_ratios=None, fixed_offsets=None, threshold=3.0,
+               estimator="lsq"):
     """Write one synthetic run and return the directory it went into.
 
     `fixed_ratios` turns on the `--fix` half: it writes the fixed-solution file
     (one ratio and one fixed offset per epoch) and puts `ratioThreshold` in the
     manifest, which is where the reader takes the threshold from. Left None, the
     run looks exactly like one without ``--fix``, fixed file and all.
+
+    `estimator` goes into the manifest under ``"estimator"``. Passing **None
+    omits the key entirely**, which is what the chapter's own runs under
+    ``output/rtk/full`` look like - their manifests were written before the
+    field existed. That omission is the case `rtk.estimator_of` has to default,
+    so the fixture has to be able to reproduce it.
     """
     os.makedirs(directory, exist_ok=True)
     out = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.OUT_SUFFIX))
@@ -99,9 +106,10 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
     with open(manifest, "w", encoding="utf-8") as f:
         f.write('{"sys": "%s", "sysLabel": "SYNTHETIC %s", "epochs": %d,'
                 ' "cutOffElevation": 10, "fixAmbiguity": %s,'
-                ' "ratioThreshold": %s}\n'
+                ' "ratioThreshold": %s%s}\n'
                 % (mode, mode.upper(), len(rtk_offsets),
-                   "true" if fixed_ratios is not None else "false", threshold))
+                   "true" if fixed_ratios is not None else "false", threshold,
+                   (', "estimator": "%s"' % estimator) if estimator else ""))
     return directory
 
 
@@ -246,8 +254,10 @@ def test_error_stats_are_rotation_invariant_but_the_split_is_not():
 
     Every quantity with a known value is checked exactly. The offset is 13 m
     long and lands on one of the two epochs, so each 3-D RMS is 13/sqrt(2) and
-    the ratio is 1 - which is the check that the ratio really is
-    reference-independent here.
+    the ratio is 1. That is a property of this fixture, in which both columns
+    are the *same* two positions - not evidence that the ratio is
+    reference-independent in general; see the module docstring of
+    ``gnss_plot.rtk`` for why it is not.
     """
     with tempfile.TemporaryDirectory() as tmp:
         _write_run(tmp)
@@ -289,13 +299,21 @@ def test_error_stats_on_an_empty_run_does_not_raise():
 
 
 def test_comparison_table_carries_the_ratio_in_the_headline():
-    """The one reference-independent number has to be where a reader sees it."""
+    """The raw ratio has to be where a reader sees it - with its caveat.
+
+    The headline deliberately does not call the number an improvement, and it
+    says the offsets are still in it; both were once wrong here.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         _build = _write_run(tmp)                        # noqa: F841
         results = [rtk.load_run(rtk.find_runs(tmp)[0], REF)]
     table = rtk.comparison_table(results, "en")
 
-    assert "SPP/RTK 3-D RMS improvement" in table
+    assert "SPP/RTK 3-D RMS ratio" in table
+    assert "offsets included" in table
+    # The withdrawn phrasing, in full - the notes legitimately say the number
+    # is NOT reference-independent, so a bare substring check would be wrong.
+    assert "the one reference-independent number" not in table
     assert "1.0x" in table, table
     # Bias and sigma are separate rows, and the frame is named.
     assert "RTK bias" in table and "RTK sigma" in table
@@ -309,7 +327,9 @@ def test_comparison_table_is_translated():
         results = [rtk.load_run(rtk.find_runs(tmp)[0], REF)]
     table = rtk.comparison_table(results, "zh")
 
-    assert "改善比" in table
+    assert "SPP/RTK 三维 RMS 比" in table
+    # The withdrawn phrasing, in full - see the English test above.
+    assert "唯一与参考坐标无关的数" not in table
     assert "{ratio}" not in table
 
 
@@ -350,6 +370,68 @@ def test_select_runs_orders_by_the_documented_mode_order():
         chosen = rtk.select_runs(rtk.find_runs(tmp))
 
     assert [r["mode"] for r in chosen] == ["gps", "bds2", "bds3"]
+
+
+# --------------------------------------------------------------------------
+# the estimator comparison (figure 8-6)
+# --------------------------------------------------------------------------
+
+def test_estimator_of_defaults_to_lsq_when_the_manifest_omits_it():
+    """A manifest that predates the field is a least-squares run.
+
+    Not a convenience: the chapter's own runs are exactly this case, so a
+    reader that refused to guess would find nothing to pair figure 8-6 against
+    and the figure would be silently absent on the only data that exists.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, mode="gps", estimator=None)
+        assert rtk.estimator_of(rtk.find_runs(tmp)[0]) == "lsq"
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, mode="gps", estimator="kalman")
+        assert rtk.estimator_of(rtk.find_runs(tmp)[0]) == "kalman"
+
+
+def test_pair_by_estimator_takes_each_side_from_the_manifest():
+    """Swapping the two arguments must not swap what the two curves mean.
+
+    Both trees arrive as nothing but a directory, so only the manifests say
+    which one the filter is. A pairing that trusted the argument order would
+    draw the filter as a second grey band whenever a caller put the flags the
+    other way round - a picture that is entirely plausible and wrong.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        a = os.path.join(tmp, "a")
+        b = os.path.join(tmp, "b")
+        _write_run(a, mode="gps", estimator="lsq")
+        _write_run(a, mode="bds2", estimator="lsq")        # one side only
+        _write_run(b, mode="gps", estimator="kalman")
+        _write_run(b, mode="bds3", estimator="kalman")     # the other side only
+
+        runs_a = rtk.select_runs(rtk.find_runs(a))
+        runs_b = rtk.select_runs(rtk.find_runs(b))
+        forward = rtk.pair_by_estimator(runs_a, runs_b)
+        backward = rtk.pair_by_estimator(runs_b, runs_a)
+
+    # gps is the only constellation both trees carry, so bds2 and bds3 - which
+    # each appear on one side only - are dropped rather than half-drawn.
+    assert [p["mode"] for p in forward] == ["gps"]
+    assert [p["mode"] for p in backward] == ["gps"]
+    # ...and it comes out the same way round whichever order it went in.
+    assert forward[0]["lsq"]["out"] == backward[0]["lsq"]["out"]
+    assert forward[0]["kalman"]["out"] == backward[0]["kalman"]["out"]
+    assert forward[0]["lsq"]["out"] != forward[0]["kalman"]["out"]
+
+
+def test_pair_by_estimator_drops_a_constellation_solved_twice_the_same_way():
+    """Two least-squares runs would plot a line against itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        a = os.path.join(tmp, "a")
+        b = os.path.join(tmp, "b")
+        _write_run(a, mode="gps", estimator="lsq")
+        _write_run(b, mode="gps", estimator="lsq")
+        pairs = rtk.pair_by_estimator(rtk.find_runs(a), rtk.find_runs(b))
+
+    assert pairs == []
 
 
 # --------------------------------------------------------------------------
@@ -402,6 +484,43 @@ def test_rtk_plot_writes_five_figures_when_the_run_was_fixed():
             got = sorted(os.listdir(png_dir))
             assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
                            "vis_rtk_float_vs_fixed_ts.png", "vis_rtk_ratio_hist.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
+            pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
+
+    assert pngs[0] == pngs[1], "the same input must produce the same bytes"
+
+
+def test_rtk_plot_draws_figure_eight_six_and_it_is_deterministic():
+    """The estimator comparison, with the same byte-for-byte requirement.
+
+    `--kalman-out` is the only thing that makes this figure appear. That is
+    also what keeps the three- and five-figure assertions above valid: neither
+    of those invocations passes the flag, so neither sees a new PNG.
+
+    Neither tree here is fixed, so four figures is the whole set - the three
+    float ones plus 8-6.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        lsq_dir = os.path.join(tmp, "lsq")
+        kal_dir = os.path.join(tmp, "kal")
+        _write_run(lsq_dir, estimator="lsq")
+        # Smaller offsets on the filter's side, so the two curves differ and
+        # the figure has a gap to draw. The gap is the whole point of it.
+        _write_run(kal_dir,
+                   rtk_offsets=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)),
+                   estimator="kalman")
+
+        pngs = []
+        for run in ("a", "b"):
+            png_dir = os.path.join(tmp, "figs-" + run)
+            rc = cli.main(["rtk-plot", "--out-dir", lsq_dir,
+                           "--kalman-out", kal_dir, "--png-dir", png_dir,
+                           "--lang", "en",
+                           "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
+            assert rc == 0
+            got = sorted(os.listdir(png_dir))
+            assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
+                           "vis_rtk_lsq_vs_kalman_ts.png",
                            "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 

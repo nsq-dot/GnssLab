@@ -26,11 +26,14 @@ by two orders of magnitude:
   the whole run and cancels only in a difference between two solutions of the
   same run. The per-axis bias and the per-axis sigma are reported as separate
   rows for exactly this reason.
-* **The SPP/RTK ratio is the one reference-independent number.**
-  Both columns are differenced against the same base header, so whatever error
-  the header itself carries (it is only metre-to-decametre accurate) is the
-  same in both and cancels in the ratio - even though it does not cancel in
-  either RMS.
+* **The SPP/RTK ratio is *not* reference-independent.** Both columns are
+  differenced against the same base header, but only one of them is *built* on
+  it: the RTK column resolves the rover relative to the base, so whatever error
+  the header carries (it is only metre-to-decametre accurate) cancels there by
+  construction and stays in full in the SPP column, where it is most of that
+  column's RMS. The ratio therefore carries the datum term with it. An earlier
+  version of this docstring claimed the opposite; ``docs/rtk.md`` section 4 and
+  figure 8-1 are where the two halves get separated.
 """
 
 from __future__ import annotations
@@ -59,6 +62,11 @@ __all__ = [
     "load_rtk_float",
     "load_rtk_fixed",
     "load_rtk_diag",
+    "DEFAULT_ESTIMATOR",
+    "KALMAN_ESTIMATOR",
+    "estimator_of",
+    "pair_by_estimator",
+    "estimator_series",
     "fix_summary",
     "fixed_series",
     "find_runs",
@@ -118,7 +126,16 @@ DIAG_NUMERIC = ("sod", "nRoverEq", "nSD", "nDD", "nUnk", "rank", "cond",
                 # 0 when the epoch did not estimate one - which is every epoch
                 # of a run without --isb, and every epoch of a mixed run whose
                 # satellites all came from one generation.
-                "isb")
+                "isb",
+                # The ROVER's own single-point system, before any differencing:
+                # observations, unknowns, rank and condition number. They are
+                # here to separate two explanations of the ``spp:`` column's
+                # error - a missing troposphere model, versus an ill-conditioned
+                # system that no model would fix. A ``sppCond`` that does not
+                # move when ``--trop`` is turned on is the second one. Absent
+                # from runs written before the columns existed, which the
+                # by-name lookup above already tolerates.
+                "sppNObs", "sppNUnk", "sppRank", "sppCond")
 
 
 # ---------------------------------------------------------------------------
@@ -415,9 +432,12 @@ def error_stats(sod, spp_xyz, rtk_xyz, ref_xyz):
         invariant under the ENU rotation, so these are the same numbers either
         way.
     ``ratio``
-        SPP 3-D RMS over RTK 3-D RMS. This is the chapter's headline: it is the
-        one figure here that does not depend on the reference, because both
-        columns are differenced against the same base header.
+        SPP 3-D RMS over RTK 3-D RMS, offsets and all - the number the console
+        table's headline quotes. It is **not** independent of the reference
+        (see the module docstring): the datum term cancels in the RTK column by
+        construction and is fully present in the SPP column, where on this
+        chapter's runs it accounts for most of the numerator. For the same two
+        columns with the offsets taken out, see figure 8-1.
     ``rtk_enu``, ``spp_enu``
         the ``(E, N, U)`` arrays themselves, for the time-series figure.
     """
@@ -598,6 +618,120 @@ def fixed_series(result, threshold=None):
         return None
     return (result["label"], np.asarray(result["sod"], dtype=float),
             mag(result["stats"]["rtk_enu"]), mag(stats_all["rtk_enu"]), accepted)
+
+
+# ---------------------------------------------------------------------------
+# the estimator comparison (figure 8-6)
+# ---------------------------------------------------------------------------
+
+#: The estimator a run whose manifest records none was produced by.
+#:
+#: ``apps/rtk.cpp`` has always written ``"estimator"``, but this chapter's own
+#: runs predate the field: the manifests under ``output/rtk/full`` carry
+#: ``codePair`` (singular) and no ``fixAmbiguity`` either, so they say nothing
+#: about how they were solved. Defaulting rather than refusing is what lets a
+#: figure be drawn against the runs already on disk; the C++'s own default is
+#: the same string, so the two agree on what an unlabelled run is.
+DEFAULT_ESTIMATOR = "lsq"
+
+#: The estimator figure 8-6 exists to compare the default against.
+KALMAN_ESTIMATOR = "kalman"
+
+
+def estimator_of(run: dict) -> str:
+    """The estimator a run's manifest names, or :data:`DEFAULT_ESTIMATOR`.
+
+    Reads the manifest rather than the filename, because the filename cannot
+    carry this: ``apps/rtk.cpp`` writes ``<rover>_<sys>_rtk_float.out`` for
+    every estimator, and that name is pinned by a byte-exact regression test.
+    The manifest is the only place a run records how it was solved.
+    """
+    path = run.get("manifest")
+    manifest = io.read_manifest(path) if path and os.path.isfile(path) else None
+    value = (manifest or {}).get("estimator")
+    return str(value) if value else DEFAULT_ESTIMATOR
+
+
+def _index_by_mode(runs, wanted: tuple) -> dict:
+    """One run per constellation, keeping the first of any duplicate.
+
+    Duplicates should not survive :func:`select_runs`, but "should not" is not
+    "cannot", and a silent last-one-wins here would make the pairing depend on
+    directory order.
+    """
+    out: dict[str, dict] = {}
+    for run in runs:
+        mode = run["mode"]
+        if mode in wanted and mode not in out:
+            out[mode] = run
+    return out
+
+
+def pair_by_estimator(runs_a, runs_b, modes=None) -> list[dict]:
+    """Pair two run lists by constellation, one run per estimator.
+
+    Returns ``[{"mode", "label", "lsq", "kalman"}]``, ordered like
+    :data:`MODES` with anything unrecognised after it, holding only the
+    constellations **both** lists carry and whose two runs actually disagree
+    about how they were solved.
+
+    Which side is which comes from the **manifests**, never from the order the
+    arguments arrive in. A caller who swaps ``--out-dir`` and ``--kalman-out``
+    should get the filter drawn as the filter and not as a second grey band;
+    reading the estimator out of each run is the only way that holds.
+
+    A pair whose two runs claim the same estimator is dropped rather than
+    drawn. Two least-squares runs would plot a line against itself - a picture
+    that looks like a finding and means nothing.
+    """
+    wanted = tuple(modes) if modes else MODES
+    a = _index_by_mode(runs_a, wanted)
+    b = _index_by_mode(runs_b, wanted)
+
+    common = set(a) & set(b)
+    ordered = [m for m in MODES if m in common]
+    ordered += sorted(m for m in common if m not in MODES)
+
+    pairs = []
+    for mode in ordered:
+        sides = {estimator_of(a[mode]): a[mode],
+                 estimator_of(b[mode]): b[mode]}
+        if DEFAULT_ESTIMATOR not in sides or KALMAN_ESTIMATOR not in sides:
+            continue
+        pairs.append({
+            "mode": mode,
+            "label": mode_label(mode),
+            "lsq": sides[DEFAULT_ESTIMATOR],
+            "kalman": sides[KALMAN_ESTIMATOR],
+        })
+    return pairs
+
+
+def estimator_series(pair: dict, ref_xyz):
+    """Inputs for :func:`gnss_plot.figures.fig_rtk_lsq_vs_kalman_ts`.
+
+    ``(label, sod_lsq, mag_lsq, sod_kal, mag_kal)``, or None when either run
+    parsed to nothing. The two magnitudes are 3-D error in metres against
+    `ref_xyz`.
+
+    Each series carries its **own** time base. The two come from separate runs
+    of separate files, and nothing in the format promises they share an epoch
+    grid - on this chapter's runs they do, and that is a measurement rather
+    than a contract. Plotting one against the other's `sod` would put the
+    samples at the wrong times without looking wrong, which is the failure
+    `fig_rtk_error_enu_ts` documents for the same reason.
+    """
+    def magnitude(run):
+        sod, _spp, xyz = load_rtk_float(run["out"])
+        e, nu, u = enu_errors(xyz, ref_xyz)
+        return (np.asarray(sod, dtype=float),
+                np.sqrt(e ** 2 + nu ** 2 + u ** 2))
+
+    sod_l, mag_l = magnitude(pair["lsq"])
+    sod_k, mag_k = magnitude(pair["kalman"])
+    if sod_l.size == 0 or sod_k.size == 0:
+        return None
+    return pair["label"], sod_l, mag_l, sod_k, mag_k
 
 
 def load_run(run: dict, ref_xyz) -> dict:
@@ -803,9 +937,11 @@ def report(results, ref_xyz, source: str, rover: str = "", lang: str = "en") -> 
     """Print the comparison table and the two notes that read it correctly.
 
     The notes are not decoration. The bias column is a datum artefact of how
-    the base station's equations are built (see the module docstring) and the
-    ratio is the only reference-independent number in the table; a reader given
-    the numbers without them would draw the wrong conclusion from both.
+    the base station's equations are built (see the module docstring), and the
+    headline ratio carries that same datum term rather than cancelling it - it
+    is not the reference-independent number this table once claimed it was. A
+    reader given the numbers without the notes draws the wrong conclusion from
+    both.
     """
     width = 96
     print("=" * width)

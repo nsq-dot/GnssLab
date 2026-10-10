@@ -850,6 +850,37 @@ def cmd_rtk_plot(args) -> int:
     elif results and not fixed and not args.no_fix_figures:
         _warn("no <rover>_<sys>_rtk_fixed.out beside the float runs; "
               "figures 8-4 and 8-5 need a run with --fix")
+
+    # Figure 8-6 is gated on its own flag rather than on --no-fix-figures: both
+    # of its series are float solutions, so it is not a fixing figure, and the
+    # flag that draws it is the one that names the second run tree.
+    #
+    # The two trees have to be separate directories, which is why this takes a
+    # directory rather than pairing against something found under --out-dir:
+    # apps/rtk.cpp writes <rover>_<sys>_rtk_float.out for every estimator, so
+    # two estimators in one tree overwrite each other, and a recursive search
+    # (find_runs) with a longer-run-wins rule would hide that it happened.
+    # The estimator is read from each run's manifest, never from the argument
+    # order, so swapping the two flags still draws the filter as the filter.
+    if args.kalman_out:
+        kal_dir = _resolve_out_dir(root, args.kalman_out)
+        if not os.path.isdir(kal_dir):
+            _warn(f"--kalman-out {kal_dir} does not exist; figure 8-6 skipped")
+        else:
+            other = rtk.select_runs(rtk.find_runs(kal_dir), rover=rover,
+                                    modes=args.sys)
+            pairs = rtk.pair_by_estimator(runs, other)
+            series = [s for s in (rtk.estimator_series(p, ref_xyz)
+                                  for p in pairs) if s]
+            if series:
+                figs.append(figures.fig_rtk_lsq_vs_kalman_ts(
+                    series,
+                    os.path.join(png_dir, "vis_rtk_lsq_vs_kalman_ts.png"),
+                    rover=rover, lang=lang))
+            else:
+                _warn("no constellation is in both trees with a manifest "
+                      "naming a different estimator; figure 8-6 needs one run "
+                      "per constellation from each")
     print()
     print(t(lang, "saved_to", dir=png_dir))
     for f in figs:
@@ -1007,6 +1038,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="an explicit <rover>_<sys>_rtk_float.out, repeatable; "
                          "replaces --out-dir and takes the diagnostic and "
                          "manifest from its siblings")
+    rk.add_argument("--kalman-out", dest="kalman_out", metavar="DIR",
+                    help="directory holding the same constellations solved with "
+                         "--estimator kalman; enables figure 8-6, which draws "
+                         "the least-squares float solution against the filter's. "
+                         "Independent of --no-fix-figures")
     rk.add_argument("--rover", help="rover basename (default: every rover found)")
     rk.add_argument("--sys", action="append", default=None,
                     choices=list(_RTK_MODES),

@@ -40,6 +40,7 @@ __all__ = [
     "fig_rtk_accuracy_bars",
     "fig_rtk_float_vs_fixed_ts",
     "fig_rtk_ratio_hist",
+    "fig_rtk_lsq_vs_kalman_ts",
 ]
 
 # Colour slots (blue / orange / aqua), plus ink, grid and zero-line greys.
@@ -847,13 +848,41 @@ def _break_gaps(sod, y):
 
 
 def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
-    """Figure 8-1: SPP and RTK 3-D error on one log axis, one panel per constellation.
+    """Figure 8-1: SPP and RTK 3-D deviation from the reference, per constellation.
 
     `modes` is a sequence of ``(label, sod, stats)``, where `stats` is what
     ``rtk.error_stats`` returns - the same dict :func:`fig_rtk_accuracy_bars`
     takes, so the numbers printed inside these panels and the numbers in the
     console table and in docs/rtk.md come from one computation rather than
     three. `label` names the constellation and titles that panel.
+
+    **Every point is a distance from the reference coordinate, and that is all
+    it is.** Both columns are drawn as they come - no subtraction, no scaling -
+    which is what makes this the figure for the chapter's headline ratio
+    (121x / 30x / 330x, the console table's rightmost column). Three things
+    have to be said beside it for that reading to survive:
+
+    * The reference is the *base station's RINEX header coordinate*, a nominal
+      position that nothing in this dataset can check. "Deviation from" is
+      therefore the honest axis title; "accuracy" is not.
+    * The RTK column reproduces that reference **by construction**:
+      ``apps/rtk.cpp`` writes ``rtk: = xyzRover + dxyzRTK``, and the double
+      difference resolves the rover relative to the base station, whose
+      position is its own header coordinate. Its 0.005-0.017 m offset is the
+      double difference's own residual (the zero baseline is a physical zero),
+      not evidence that the method is accurate to 2 cm.
+    * The SPP column is an absolute solution, and most of its 21-33 m is a
+      ~19-28 m offset whose source is still unexplained (docs/rtk.md section
+      11). The offset is annotated on every panel for exactly this reason:
+      ``annot_rtk_vs_rms`` prints it next to the RMS it is part of, so the gap
+      between the two bands can be read as the offset it largely is.
+
+    What this figure deliberately does **not** show is the other half of the
+    comparison - the same two columns with their offsets removed, which is what
+    answers "how repeatable is each solution", and where the SPP offset turns
+    out to be a slow drift rather than a constant. Those numbers live in
+    section four's table and prose (50x / 16x / 110x centred, 7.2x / 9.2x /
+    14.4x epoch-to-epoch), next to the 121x / 30x / 330x this panel annotates.
 
     **The logarithmic axis is the figure, not a flourish.** SPP's 3-D RMS is
     21-33 m and RTK's is 0.08-1.13 m; on a linear axis the RTK band collapses
@@ -879,16 +908,20 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
         notes = []
         for key, color, lkey in (("spp", C_SPP, "legend_spp"),
                                  ("rtk", C_RTK, "legend_rtk")):
-            # Magnitude first, then the gaps. The three components share one
-            # `sod`, so breaking each of them and summing would put the NaNs on
-            # the same indices as breaking the sum - at three times the cost.
             e, nu, u = (np.asarray(a, dtype=float) for a in stats[key + "_enu"])
             mag = np.sqrt(e ** 2 + nu ** 2 + u ** 2)
             mag = np.where(mag > 0.0, mag, np.nan)
             ax.plot(sod, _break_gaps(sod, mag), color=color, lw=0.7, alpha=0.9,
                     zorder=2, label=t(lang, lkey))
-            notes.append(t(lang, "annot_rtk_vs_rms",
-                           method=t(lang, lkey), rms=stats[key]["rms_3d"]))
+            # The offset is printed beside the RMS it is part of, because it is
+            # what separates the two bands: `rms_3d` is about the reference,
+            # the offset is the distance between the series' own mean and that
+            # reference. Taken as a 3-vector magnitude (norm of the ENU bias),
+            # so the three panels stay comparable - a per-axis figure could not
+            # be.
+            notes.append(t(lang, "annot_rtk_vs_rms", method=t(lang, lkey),
+                           rms=stats[key]["rms_3d"],
+                           off=float(np.linalg.norm(stats[key]["bias"]))))
         ratio = stats["ratio"]
         notes.append(t(lang, "annot_rtk_vs_gain",
                        ratio=("%.0f×" % ratio) if np.isfinite(ratio) else "-"))
@@ -1227,4 +1260,80 @@ def fig_rtk_ratio_hist(modes, out_png, rover="", lang="en", threshold=3.0):
     ax.legend(fontsize=8.5, loc="upper right", framealpha=0.9)
     style_ax(ax)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
+    return _finish(fig, out_png)
+
+
+def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
+    """Figure 8-6: the single-epoch solution against the Kalman filter.
+
+    `panels` is a sequence of ``(label, sod_lsq, mag_lsq, sod_kal, mag_kal)``.
+    Each series carries its **own** `sod`: the two are separate runs of separate
+    files, and nothing in the format promises a shared epoch grid.
+
+    The grey/red pairing is figures 8-1 and 8-4's: grey is the coarse solution
+    the eye should discount, red the one under discussion. Here that is the
+    single-epoch solution against the filter, and the legends say so - the
+    grammar is what carries over, not the identity of the two methods.
+
+    **The window is figure 8-1's**, unchanged and shared by all three panels,
+    so the grey band here sits at the height of the red band in 8-1 and of the
+    grey band in 8-4. The three are meant to be read against each other: the
+    gap between the bands is what the filter bought, which is the same quantity
+    the section's tables report.
+
+    Both series are annotated with the **3-D RMS**, not the median, because
+    that is the statistic the tables use. A median would hide exactly what this
+    figure exists to show: the filter's gain is not uniform in time. It starts
+    from a large initial covariance and needs epochs to pull the state in, so
+    BDS-3's first thousand epochs are barely better than the single-epoch
+    solution while the second half of the run is tens of times better. A median
+    over the whole run reports the converged value and makes the transient
+    disappear - which is the reading the figure is here to prevent.
+    """
+    panels = [(str(p[0]), np.asarray(p[1], dtype=float),
+               np.asarray(p[2], dtype=float), np.asarray(p[3], dtype=float),
+               np.asarray(p[4], dtype=float)) for p in panels]
+    n = max((int(p[1].size) for p in panels), default=0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig.suptitle(t(lang, "title_rtk_kalman", rover=rover or "-", n=n),
+                 fontsize=12)
+
+    for k, (ax, (label, sod_l, mag_l, sod_k, mag_k)) in enumerate(
+            zip(axes, panels)):
+        # Magnitude zero is -inf on the log axis, so it becomes a gap rather
+        # than a plotted point; see fig_rtk_spp_vs_rtk_ts for why 1e-9 is not
+        # used here. Each series is broken on its own sod, not the other's.
+        grey = np.where(mag_l > 0.0, mag_l, np.nan)
+        red = np.where(mag_k > 0.0, mag_k, np.nan)
+        ax.plot(sod_l, _break_gaps(sod_l, grey), color=C_SPP, lw=0.6,
+                alpha=0.85, zorder=2, label=t(lang, "legend_lsq_float"))
+        ax.plot(sod_k, _break_gaps(sod_k, red), color=C_RTK, lw=0.6,
+                alpha=0.95, zorder=3, label=t(lang, "legend_kalman_float"))
+
+        lrms = float(np.sqrt(np.nanmean(grey ** 2))) if sod_l.size else float("nan")
+        krms = float(np.sqrt(np.nanmean(red ** 2))) if sod_k.size else float("nan")
+        # Preformatted rather than a format spec in the string, so a NaN or a
+        # zero cannot reach a `:.1f` inside _strings.t().
+        gain = ("%.1f×" % (lrms / krms)) if krms > 0.0 else "-"
+        ax.text(0.01, 0.97,
+                t(lang, "annot_rtk_kalman", mode=label, lrms=lrms, krms=krms,
+                  gain=gain, n1=int((mag_l > 1.0).sum()),
+                  n2=int((mag_k > 1.0).sum())),
+                transform=ax.transAxes, va="top", fontsize=8, color=INK,
+                bbox=dict(facecolor="white", alpha=0.82, edgecolor="none",
+                          pad=2.0))
+        ax.set_title(label, loc="left", fontsize=10, color=INK)
+        if k == 0:
+            ax.legend(fontsize=9, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    axes[1].set_ylabel(t(lang, "axis_rtk_mag_kalman"), fontsize=10)
+    axes[0].set_yscale("log")
+    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    sods = [s for _l, s_l, _a, s_k, _b in panels for s in (s_l, s_k)]
+    _sod_axis(axes[-1], np.concatenate(sods) if sods
+              else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
     return _finish(fig, out_png)

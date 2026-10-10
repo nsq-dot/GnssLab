@@ -33,8 +33,9 @@ noexcept(false) {
         cout << setprecision(10) << "bias:" << clkData.clockBias << "drift:" << clkData.clockDrift << endl;
     }
 
-    // 相对论改正。精密钟差产品里已经包含这一项，所以用它跑定位解算时必须
-    // 关掉（见 addRelativity 的注释），否则重复计入 ±7 m。
+    // 相对论改正。精密钟差产品里**不含**这一项（与广播多项式同一约定），
+    // 所以定位解算里也要照加——关掉会让每颗星少算 ±2~7.5 m，
+    // 2025 武汉 24 小时的实测是：均值 1.06 → 6.32 m。
     if (addRelativity) {
         xvt.relcorr = -2.0 * ((xvt.x[0] / C_MPS) * (xvt.v[0] / C_MPS)
                               + (xvt.x[1] / C_MPS) * (xvt.v[1] / C_MPS)

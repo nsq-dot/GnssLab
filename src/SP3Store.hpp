@@ -49,13 +49,14 @@ public:
     noexcept(false);
 
     // Whether getXvt adds the computed relativistic correction on top of the
-    // clock it read. The precise (IGS/CODE) clock products ALREADY contain
-    // that correction, so a solver consuming these clocks must leave this
-    // false or it counts the term twice - ±7 m, invisible in a difference but
-    // not in a position (see docs/rtk.md, the zero-baseline SPP offset).
-    // Default true: bds_eph / bds_gps_diff compare these clocks against
-    // broadcast ones, whose relativity the solver adds separately, so their
-    // behaviour must not change.
+    // clock it read. The IGS/CODE clock products do NOT contain that term -
+    // they are the same convention as the broadcast polynomial, which the
+    // caller adds relativity to separately. Measured against bds_eph: the
+    // precise clock minus the broadcast polynomial is 1.9/10.3/-2.8 ns, i.e.
+    // the broadcast clock's own error, not the ±7-25 ns the term is worth.
+    // Leaving this true is therefore correct for a positioning solver too; a
+    // run that turned it off (2025 Wuhan, 24 h) went from 1.06 m mean to
+    // 6.32 m - the term is ±2-7.5 m per satellite.
     bool addRelativity = true;
 
     PosVel getPosVel(const SatID &sat, const CommonTime &time);

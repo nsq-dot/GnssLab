@@ -158,8 +158,8 @@ void printUsage(const char *prog) {
          "  --sp3 <file>       Precise orbit (SP3). With --clk, both single-point\n"
          "  --clk <file>       solves run on precise orbits and clocks instead of\n"
          "                     the broadcast ephemeris. Both are required together;\n"
-         "                     the precise clock already carries the relativistic\n"
-         "                     term, so the store must not add it again\n"
+         "                     the products are not relativity-corrected, so the\n"
+         "                     solver adds that term as it does for broadcast\n"
          "  --smooth <N>       Hatch-smooth the code with its carrier before the\n"
          "                     single-point solves, window N epochs (0 = off, the\n"
          "                     default). Moves the spp: column, and the rtk: one\n"
@@ -605,7 +605,9 @@ int main(int argc, char *argv[]) {
                  << "       " << e.what() << "\n";
             return 1;
         }
-        sp3Store.addRelativity = false;
+        // 精密钟差产品与广播多项式同一约定（都不含相对论项），所以这里不能关——
+        // 关掉等于每颗星少算 ±2~7.5 m。实测见 bds_eph 的 nav-sp3 钟差差：只有 1.9/10.3/-2.8 ns。
+        sp3Store.addRelativity = true;
         cout << "orbit/clock: precise (SP3 + CLK)\n"
              << "  sp3 : " << optSp3 << "\n"
              << "  clk : " << optClk << "\n";

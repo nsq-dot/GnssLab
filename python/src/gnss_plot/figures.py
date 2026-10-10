@@ -890,10 +890,10 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     both *how large* the SPP error is and that the differential solution is two
     orders below it. A logarithmic axis shows the ratio instead and hides the
     size - which is why this chapter's figures are all linear (chapter 8's
-    figures, like the rest of the report). The window is fixed and shared by all
-    three panels - refitting it per constellation would make BDS-2's 1.13 m and
-    BDS-3's 0.076 m look alike, and telling those two apart is what section four
-    concludes.
+    figures, like the rest of the report). Each panel is scaled to its own data -
+    the constellations differ by an order of magnitude, so a shared linear window
+    would press the smaller two onto the bottom edge; comparing them is the
+    annotation's job, which is where the numbers were read from anyway.
 
     A magnitude of exactly zero still becomes a NaN here rather than a plotted
     point. On this axis the resulting gap sits on the bottom edge and is a
@@ -903,7 +903,7 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     modes = [(str(m[0]), np.asarray(m[1], dtype=float), m[2]) for m in modes]
     n = max((int(sod.size) for _l, sod, _s in modes), default=0)
 
-    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
     fig.suptitle(t(lang, "title_rtk_spp", rover=rover or "-", n=n), fontsize=12)
 
     for k, (ax, (label, sod, stats)) in enumerate(zip(axes, modes)):
@@ -930,7 +930,7 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
 
         ax.set_title(label, loc="left", fontsize=10, color=INK)
         # The annotation needs a backing here, which the sibling figure gets
-        # away without: the shared five-decade window runs the SPP band
+        # away without: the window runs the series straight through it
         # straight through this corner of every panel.
         ax.text(0.01, 0.97, "\n".join(notes), transform=ax.transAxes, va="top",
                 fontsize=8, color=INK,
@@ -943,13 +943,13 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     # One label for the middle panel only: the three panels carry the same
     # quantity, so repeating it three times would say nothing new.
     axes[1].set_ylabel(t(lang, "axis_rtk_mag"), fontsize=10)
-    # Linear, and set on the first panel only: sharey propagates both the scale
-    # and the window to the other two, which is the point of sharing them. The
-    # RTK band therefore sits on the bottom edge of the window while the SPP
-    # band crosses the top of it, and the distance between them is what the
-    # figure is for - a log axis would compress that into a ratio and hide how
-    # large the SPP error actually is.
-    axes[0].set_ylim(bottom=0.0)
+    # Each panel is scaled to its own data, with its bottom pinned to zero. The
+    # constellations' errors differ by an order of magnitude (BDS-2's SPP runs
+    # to ~55 m, GPS's to ~5), and on a shared *linear* axis the smaller two
+    # would be pressed onto the bottom edge. What the shared height used to
+    # carry - which constellation is worse - is on the panel as numbers.
+    for ax in axes:
+        ax.set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     _sod_axis(axes[-1], np.concatenate([s for _l, s, _s in modes])
               if modes else np.asarray([], dtype=float))
@@ -1164,7 +1164,7 @@ def fig_rtk_float_vs_fixed_ts(modes, out_png, rover="", lang="en", threshold=3.0
               np.asarray(m[4], dtype=bool)) for m in modes]
     n = max((int(sod.size) for _l, sod, *_r in modes), default=0)
 
-    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
     fig.suptitle(t(lang, "title_rtk_fix", rover=rover or "-", n=n,
                    thr="%.1f" % threshold), fontsize=12)
 
@@ -1195,7 +1195,8 @@ def fig_rtk_float_vs_fixed_ts(modes, out_png, rover="", lang="en", threshold=3.0
         style_ax(ax)
 
     axes[1].set_ylabel(t(lang, "axis_rtk_mag_fix"), fontsize=10)
-    axes[0].set_ylim(bottom=0.0)
+    for ax in axes:
+        ax.set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     _sod_axis(axes[-1], np.concatenate([s for _l, s, *_r in modes])
               if modes else np.asarray([], dtype=float))
@@ -1280,11 +1281,10 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
     single-epoch solution against the filter, and the legends say so - the
     grammar is what carries over, not the identity of the two methods.
 
-    **The window is figure 8-1's**, unchanged and shared by all three panels,
-    so the grey band here sits at the height of the red band in 8-1 and of the
-    grey band in 8-4. The three are meant to be read against each other: the
-    gap between the bands is what the filter bought, which is the same quantity
-    the section's tables report.
+    **The layout is figure 8-1's** - three panels, one per constellation, each
+    scaled to its own data with the bottom pinned to zero - so the gap between
+    the grey and red bands is read the same way in both figures. The gap is what
+    the filter bought, the same quantity the section's tables report.
 
     Both series are annotated with the **3-D RMS**, not the median, because
     that is the statistic the tables use. A median would hide exactly what this
@@ -1300,7 +1300,7 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
                np.asarray(p[4], dtype=float)) for p in panels]
     n = max((int(p[1].size) for p in panels), default=0)
 
-    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True, sharey=True)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
     fig.suptitle(t(lang, "title_rtk_kalman", rover=rover or "-", n=n),
                  fontsize=12)
 
@@ -1335,7 +1335,8 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
         style_ax(ax)
 
     axes[1].set_ylabel(t(lang, "axis_rtk_mag_kalman"), fontsize=10)
-    axes[0].set_ylim(bottom=0.0)
+    for ax in axes:
+        ax.set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     sods = [s for _l, s_l, _a, s_k, _b in panels for s in (s_l, s_k)]
     _sod_axis(axes[-1], np.concatenate(sods) if sods

@@ -45,9 +45,17 @@ public:
     // 30 s datasets here without firing on their normal cadence.
     void setGapLimit(double seconds) { gapLimit = seconds; }
 
-    // Code-minus-carrier step that counts as a slip [m]. Small slips pass
-    // through and their bias decays as 1/N; the alternative, a threshold tight
-    // enough to catch a single cycle, would fire on the code's own noise.
+    // Code-minus-carrier step that counts as a slip [m].
+    //
+    // This is a BACKSTOP, not the reset signal. The real one is chapter 7's
+    // cycle-slip flags, passed to smooth(): the divergence test cannot tell a
+    // one-cycle slip (0.2 m) from noise, so a threshold tight enough to catch
+    // slips fires constantly on slow code multipath - which is exactly what
+    // smoothing is supposed to remove. Measured on the 2025 Wuhan day (24 h,
+    // precise products): a 2 m threshold left the 3-D RMS at 4.94 m, i.e. no
+    // gain at all, while never resetting at all carried real slips into the
+    // code and made it 9.77 m. Hence a loose threshold here and the flags
+    // there.
     void setSlipThreshold(double metres) { slipThreshold = metres; }
 
     // Rewrite the code observations in place. `slipped`, when given, names
@@ -69,7 +77,9 @@ private:
     std::map<std::string, State> states;
     int window = 100;
     double gapLimit = 120.0;
-    double slipThreshold = 2.0;
+    // Loose on purpose - see setSlipThreshold: the flags do the work, this
+    // only stops the filter dead on a gross discontinuity.
+    double slipThreshold = 15.0;
 };
 
 #endif // GNSSLAB_CARRIERSMOOTHER_H

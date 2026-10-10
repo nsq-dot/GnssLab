@@ -788,7 +788,9 @@ int main(int argc, char *argv[]) {
     long fixedEpochs = 0;      // epochs whose ratio cleared the threshold
 
     // One smoother serves both stations: its state is keyed by station name.
+    // The slipped sets carry the previous epoch's cycle-slip flags into it.
     CarrierSmoother smoother;
+    std::set<SatID> slippedRoverPrev, slippedBasePrev;
     if (optSmooth > 0) {
         smoother.setWindow(optSmooth);
         cout << "carrier smoothing: Hatch filter, window " << optSmooth
@@ -813,8 +815,16 @@ int main(int argc, char *argv[]) {
         // what a receiver's own firmware does and what its reported position
         // reflects; without it the two disagree by everything the site adds to
         // the code, which the double difference then cancels silently.
+        //
+        // The reset signal is chapter 7's slip flags. They are computed at the
+        // bottom of this loop, not here, because detect() rewrites the
+        // observations it is handed - it drops the satellites it cannot form a
+        // combination for - and running it before the solve would take those
+        // satellites out of the single-point equations too. So the smoother
+        // gets the PREVIOUS epoch's flags: one epoch of delay, which is all a
+        // reset needs.
         if (optSmooth > 0) {
-            smoother.smooth(roverData);
+            smoother.smooth(roverData, &slippedRoverPrev);
         }
         try {
             sppRover.solve(roverData);
@@ -856,7 +866,7 @@ int main(int argc, char *argv[]) {
             }
         }
         if (optSmooth > 0) {
-            smoother.smooth(baseData);
+            smoother.smooth(baseData, &slippedBasePrev);
         }
         try {
             sppBase.solve(baseData);
@@ -876,9 +886,18 @@ int main(int argc, char *argv[]) {
         // they cannot form a combination for, so running them first would take
         // those satellites out of the equations as well.
         VariableDataMap csFlagRover, csFlagBase, csFlagSd;
-        if (wantCsFlags) {
+        if (wantCsFlags || optSmooth > 0) {
             csFlagRover = csDetRover.detect(roverData);
             csFlagBase  = csDetBase.detect(baseData);
+            // Hand the satellites that slipped to the next epoch's smoother.
+            // Without --dump-cs these flags are computed and not reported, but
+            // the detection itself is what the smoothing needs; the flagged
+            // difference stage below stays guarded, so a run that wants no
+            // flags still gets the unflagged double difference.
+            slippedRoverPrev.clear();
+            for (const auto &kv : csFlagRover) slippedRoverPrev.insert(kv.first.sat);
+            slippedBasePrev.clear();
+            for (const auto &kv : csFlagBase) slippedBasePrev.insert(kv.first.sat);
         }
 
         // --- between stations ------------------------------------------------

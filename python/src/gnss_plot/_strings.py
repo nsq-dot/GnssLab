@@ -132,7 +132,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # The bar chart is logarithmic so that bias and sigma stay comparable
         # across two orders of magnitude; the sign of a bias is carried by the
         # bar label and the table instead, which is what this axis label says.
-        "axis_rtk_abs": "|value| [m] — log axis, bias is signed in the label",
+        "axis_rtk_abs": "|value| [m] — bias is signed in the label",
         "annot_bar_signed": "{v:+.4f}",
         "annot_bar_plain": "{v:.4f}",
 
@@ -147,7 +147,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # BDS-2's 1.13 m and BDS-3's 0.076 m do not look alike, and "deviation"
         # rather than "error" is what the axis actually measures: a distance
         # from the base header coordinate, which this dataset cannot check.
-        "axis_rtk_mag": "deviation |d| [m] — log axis, one window for all panels",
+        "axis_rtk_mag": "deviation |d| [m] — one window for all panels",
         # Short, as in the sibling figures (8-4's "RTK float").
         "legend_spp": "SPP",
         "legend_rtk": "RTK float",
@@ -170,7 +170,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # a longer label runs off the bottom of a three-panel figure once
         # tight_layout has taken its share. What grey and red mean is the
         # legend's job, not the axis label's.
-        "axis_rtk_mag_fix": "3-D error |d| [m] — log axis, one window for all panels",
+        "axis_rtk_mag_fix": "3-D error |d| [m] — one window for all panels",
         "legend_float": "RTK float",
         "legend_fixed": "RTK fixed (accepted)",
         # {rate} and the RMS values are numbers, not preformatted strings: the
@@ -190,7 +190,7 @@ STRINGS: dict[str, dict[str, str]] = {
 
         # --- the estimator comparison (figure 8-6) ---
         # Same length as axis_rtk_mag_fix, for the reason given above it.
-        "axis_rtk_mag_kalman": "3-D error |d| [m] — log axis, one window for all panels",
+        "axis_rtk_mag_kalman": "3-D error |d| [m] — one window for all panels",
         "title_rtk_kalman": "RTK float: single-epoch LSQ vs Kalman filter, one "
                             "panel per constellation ({rover}, {n} epochs each)",
         # Named for the estimators, not for "float" against "something else":
@@ -401,14 +401,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "title_rtk_bars": "各星座 RTK 浮点解精度（{rover}）",
 
         "annot_stats_rtk": "{mode}: 偏差={bias:+.3f}  σ={std:.3f}  RMS={rms:.3f} m",
-        "axis_rtk_abs": "|数值| [m] —— 对数轴，偏差的正负见柱上标注",
+        "axis_rtk_abs": "|数值| [m] —— 偏差的正负见柱上标注",
         "annot_bar_signed": "{v:+.4f}",
         "annot_bar_plain": "{v:.4f}",
 
         # --- SPP 与 RTK 对比图（图 8-1）---
         "title_rtk_spp": "SPP 与 RTK 相对参考坐标的三维偏差时序，每个星座一个面板"
                          "（{rover}，各 {n} 个历元）",
-        "axis_rtk_mag": "相对参考坐标的偏差 |d| [m] —— 对数轴，三面板共用窗口",
+        "axis_rtk_mag": "相对参考坐标的偏差 |d| [m] —— 三面板共用窗口",
         # 与同章的图 8-4 一样取短标签。
         "legend_spp": "SPP",
         "legend_rtk": "RTK 浮点解",
@@ -423,7 +423,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # --- 固定解（图 8-4、图 8-5）---
         "title_rtk_fix": "RTK 浮点解与固定解三维误差时序，每个星座一个面板"
                          "（{rover}，各 {n} 个历元，ratio > {thr}）",
-        "axis_rtk_mag_fix": "三维误差 |d| [m] —— 对数轴，三面板共用窗口",
+        "axis_rtk_mag_fix": "三维误差 |d| [m] —— 三面板共用窗口",
         "legend_float": "RTK 浮点解",
         "legend_fixed": "RTK 固定解（已接受）",
         "annot_rtk_fix": "{mode}: 固定率 {rate:.1f}%  ·  浮点 RMS {frms:.3f} m  "
@@ -436,7 +436,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_ratio_thr": "阈值 {thr} —— 该线左侧全部被拒",
 
         # --- 解算器对比（图 8-6）---
-        "axis_rtk_mag_kalman": "三维误差 |d| [m] —— 对数轴，三面板共用窗口",
+        "axis_rtk_mag_kalman": "三维误差 |d| [m] —— 三面板共用窗口",
         "title_rtk_kalman": "RTK 浮点解：单历元最小二乘与卡尔曼滤波对比，"
                             "每个星座一个面板（{rover}，各 {n} 个历元）",
         "legend_lsq_float": "单历元最小二乘（浮点解）",

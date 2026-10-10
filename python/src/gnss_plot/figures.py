@@ -884,19 +884,21 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     section four's table and prose (50x / 16x / 110x centred, 7.2x / 9.2x /
     14.4x epoch-to-epoch), next to the 121x / 30x / 330x this panel annotates.
 
-    **The logarithmic axis is the figure, not a flourish.** SPP's 3-D RMS is
-    21-33 m and RTK's is 0.08-1.13 m; on a linear axis the RTK band collapses
-    into a flat line lying on zero. The window is fixed and shared by all three
-    panels for the same reason - refitting it per constellation would make
-    BDS-2's 1.13 m and BDS-3's 0.076 m look alike, and telling those two apart
-    is what section four concludes.
+    **The axis is linear, and that is the point.** SPP's 3-D RMS is 2.8-13.5 m
+    and RTK's is 0.08-1.13 m: the RTK band lies in the bottom few percent of the
+    window while the SPP band runs across the top of it, and the reader can see
+    both *how large* the SPP error is and that the differential solution is two
+    orders below it. A logarithmic axis shows the ratio instead and hides the
+    size - which is why this chapter's figures are all linear (chapter 8's
+    figures, like the rest of the report). The window is fixed and shared by all
+    three panels - refitting it per constellation would make BDS-2's 1.13 m and
+    BDS-3's 0.076 m look alike, and telling those two apart is what section four
+    concludes.
 
-    Two things the log axis forces. An exact zero is -inf there, so a magnitude
-    of zero becomes a NaN and leaves a gap, rather than taking the ``1e-9``
-    floor the bar chart uses: a zero-height bar is invisible at any limit, but
-    a line would have to draw the point somewhere, and 1e-9 would claim an
-    accuracy of one nanometre. And no zero line is drawn - it is off the bottom
-    of the axis entirely.
+    A magnitude of exactly zero still becomes a NaN here rather than a plotted
+    point. On this axis the resulting gap sits on the bottom edge and is a
+    line-width wide, so the curve reads as continuous; keeping the rule means
+    this panel and figures 8-4 and 8-6 treat a zero the same way.
     """
     modes = [(str(m[0]), np.asarray(m[1], dtype=float), m[2]) for m in modes]
     n = max((int(sod.size) for _l, sod, _s in modes), default=0)
@@ -941,12 +943,13 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     # One label for the middle panel only: the three panels carry the same
     # quantity, so repeating it three times would say nothing new.
     axes[1].set_ylabel(t(lang, "axis_rtk_mag"), fontsize=10)
-    # Logarithmic, and set on the first panel only: sharey propagates both the
-    # scale and the window to the other two, which is the point of sharing them.
-    # Without the log scale the RTK band collapses onto zero and the figure says
-    # nothing - the exact failure this figure exists to avoid.
-    axes[0].set_yscale("log")
-    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    # Linear, and set on the first panel only: sharey propagates both the scale
+    # and the window to the other two, which is the point of sharing them. The
+    # RTK band therefore sits on the bottom edge of the window while the SPP
+    # band crosses the top of it, and the distance between them is what the
+    # figure is for - a log axis would compress that into a ratio and hide how
+    # large the SPP error actually is.
+    axes[0].set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     _sod_axis(axes[-1], np.concatenate([s for _l, s, _s in modes])
               if modes else np.asarray([], dtype=float))
@@ -1047,13 +1050,13 @@ def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
     per-axis biases, the three per-axis sigmas, and the 3-D RMS - grouped by
     constellation.
 
-    The y axis is **logarithmic and unsigned**, and that is a deliberate
-    compromise rather than a preference. On a linear axis the three biases
-    (millimetres to centimetres) would be invisible next to a 1.1 m 3-D RMS,
-    and the whole point of the figure is that the bias and the sigma are
-    different kinds of quantity that have to be read side by side. The cost is
-    that the bias sign cannot be shown by a bar, so it is printed above each
-    one and kept in the table; the axis label says so.
+    The y axis is **linear and unsigned**. The three biases are millimetres to
+    centimetres against a 3-D RMS of 0.08-1.13 m, so their bars are short - and
+    that is the figure's point: the bias and the sigma are different kinds of
+    quantity, read side by side, and the meters-scale column is the one that
+    dominates. Every bar carries its own value as a label, signed for the bias,
+    so nothing depends on a bar's height to be read; the axis label says the
+    sign lives in the label.
 
     Values are printed on the bars, because a reader checking this figure
     against the console table should not have to estimate from a pixel height.
@@ -1081,9 +1084,9 @@ def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
             heights.append(v)
         values.append(heights)
         # abs() for the bar height, the signed value for the label. A zero
-        # would be -inf on a log axis and cannot occur in these quantities
-        # (a sigma of exactly zero is a degenerate run), so the floor is a
-        # guard rather than a correction.
+        # cannot occur in these quantities (a sigma of exactly zero is a
+        # degenerate run), so the floor is a guard rather than a correction -
+        # it only keeps the label from being placed at y = 0.
         heights = np.abs(np.asarray(heights, dtype=float))
         heights = np.where(heights > 0.0, heights, 1e-9)
         cls = [0 if s else (2 if k == n_items - 1 else 1)
@@ -1102,10 +1105,13 @@ def fig_rtk_accuracy_bars(series, out_png, rover="", lang="en"):
                     ha="center", va="bottom", rotation=90, fontsize=6.5,
                     color=INK)
 
-    ax.set_yscale("log")
+    # Linear, like the rest of this chapter's figures: the bars show the actual
+    # metres. Values a bar cannot show - a bias of a few millimetres next to a
+    # decimetre RMS - are printed on the bar itself by annot_bar_*, so nothing
+    # becomes unreadable by dropping the log scale.
     finite = [abs(v) for heights in values for v in heights if abs(v) > 0.0]
     if finite:
-        ax.set_ylim(min(finite) / 3.0, max(finite) * 6.0)
+        ax.set_ylim(0.0, max(finite) * 1.35)
     ax.set_xticks(x)
     ax.set_xticklabels([t(lang, k) for k, _g, _s in _RTK_BAR_ITEMS], fontsize=9)
     ax.set_ylabel(t(lang, "axis_rtk_abs"), fontsize=10)
@@ -1163,9 +1169,9 @@ def fig_rtk_float_vs_fixed_ts(modes, out_png, rover="", lang="en", threshold=3.0
                    thr="%.1f" % threshold), fontsize=12)
 
     for k, (ax, (label, sod, mag_f, mag_x, acc)) in enumerate(zip(axes, modes)):
-        # Magnitude zero is -inf on the log axis, so it becomes a gap rather
-        # than a plotted point; see fig_rtk_spp_vs_rtk_ts for why 1e-9 is not
-        # used here.
+        # A magnitude of exactly zero becomes a gap rather than a plotted
+        # point; on the linear axis that gap sits on the bottom edge and is a
+        # line-width wide. See fig_rtk_spp_vs_rtk_ts for the rule.
         grey = np.where(mag_f > 0.0, mag_f, np.nan)
         red = np.where(acc & (mag_x > 0.0), mag_x, np.nan)
         ax.plot(sod, _break_gaps(sod, grey), color=C_SPP, lw=0.6, alpha=0.85,
@@ -1189,8 +1195,7 @@ def fig_rtk_float_vs_fixed_ts(modes, out_png, rover="", lang="en", threshold=3.0
         style_ax(ax)
 
     axes[1].set_ylabel(t(lang, "axis_rtk_mag_fix"), fontsize=10)
-    axes[0].set_yscale("log")
-    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    axes[0].set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     _sod_axis(axes[-1], np.concatenate([s for _l, s, *_r in modes])
               if modes else np.asarray([], dtype=float))
@@ -1301,9 +1306,10 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
 
     for k, (ax, (label, sod_l, mag_l, sod_k, mag_k)) in enumerate(
             zip(axes, panels)):
-        # Magnitude zero is -inf on the log axis, so it becomes a gap rather
-        # than a plotted point; see fig_rtk_spp_vs_rtk_ts for why 1e-9 is not
-        # used here. Each series is broken on its own sod, not the other's.
+        # A magnitude of exactly zero becomes a gap rather than a plotted
+        # point; on the linear axis that gap sits on the bottom edge. See
+        # fig_rtk_spp_vs_rtk_ts for the rule. Each series is broken on its own
+        # sod, not the other's.
         grey = np.where(mag_l > 0.0, mag_l, np.nan)
         red = np.where(mag_k > 0.0, mag_k, np.nan)
         ax.plot(sod_l, _break_gaps(sod_l, grey), color=C_SPP, lw=0.6,
@@ -1329,8 +1335,7 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
         style_ax(ax)
 
     axes[1].set_ylabel(t(lang, "axis_rtk_mag_kalman"), fontsize=10)
-    axes[0].set_yscale("log")
-    axes[0].set_ylim(_RTK_CMP_YMIN, _RTK_CMP_YMAX)
+    axes[0].set_ylim(bottom=0.0)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     sods = [s for _l, s_l, _a, s_k, _b in panels for s in (s_l, s_k)]
     _sod_axis(axes[-1], np.concatenate(sods) if sods

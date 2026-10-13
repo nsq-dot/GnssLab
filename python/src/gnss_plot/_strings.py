@@ -294,24 +294,25 @@ STRINGS: dict[str, dict[str, str]] = {
             "is how a solution ends up metres out.",
         "rpt_rtk_note_bias":
             "Note 1 — the bias is a datum offset, not an accuracy figure. "
-            "SPPUCCodePhase::solve builds the base station's equations at its "
-            "RINEX header coordinate and returns without iterating, and the rover "
-            "is accepted as soon as |dxyz| < 0.1 m. Every epoch therefore "
-            "reproduces the base header position plus the rover's last, "
-            "unconverged correction — up to 0.1 m, and near-constant over the "
-            "run. Read sigma as the precision and the bias as that offset. This "
-            "describes the RTK column only; the SPP column's offset is a "
-            "different thing (19-28 m here, and unexplained — section 4 and "
-            "figure 8-1).",
+            "SPPUCCodePhase::solve builds the base station's equations at the "
+            "coordinate it is given — the RINEX header by default, --base-xyz if "
+            "supplied — and returns without iterating, and the rover is accepted "
+            "as soon as |dxyz| < 0.1 m. Every epoch therefore reproduces that "
+            "base coordinate plus the rover's last, unconverged correction — up "
+            "to 0.1 m, and near-constant over the run. Read sigma as the "
+            "precision and the bias as that offset. This describes the RTK "
+            "column only; the SPP column's offset is its own error, not a datum "
+            "term (0.01 / 9.4 / 1.7 m on this data — section 4).",
         "rpt_rtk_note_ratio":
             "Note 2 — the SPP/RTK ratio is NOT reference-independent. Both "
-            "columns are differenced against the same base header, but the RTK "
-            "column is built on it: double differencing resolves the rover "
-            "relative to the base, whose position is its own header coordinate. "
-            "The header's error therefore cancels in the RTK column by "
-            "construction and stays in full in the SPP column, where it is most "
-            "of the offset. The ratio carries that datum term with it; section 4 "
-            "and figure 8-1 separate the two.",
+            "columns are measured against the same reference, but the RTK "
+            "column is built on the base station's assumed coordinate: double "
+            "differencing resolves the rover relative to the base, so that "
+            "coordinate enters the RTK solution by construction. Measure against "
+            "a different reference — the RINEX header, say, which on this "
+            "equipment sits 24.9 m from the antenna — and both columns move. "
+            "The ratio carries that dependence with it; section 4 and figure "
+            "8-1 separate each column's offset from its residual.",
     },
     "zh": {
         "axis_sod": "秒内时刻 sod [s]",
@@ -531,18 +532,17 @@ STRINGS: dict[str, dict[str, str]] = {
             "最大的误差：若它是厘米级，说明整段没有一个固定错。两列缺一不可，因为固定解文件在"
             "被拒历元上写的仍是浮点解——不按阈值过滤就直接采用，会得到米级的解。",
         "rpt_rtk_note_bias":
-            "说明 1 —— 偏差不是精度指标，而是基准偏移。SPPUCCodePhase::solve 用基准站 "
-            "RINEX 表头坐标建立基准站方程后直接返回（不再迭代），流动站则迭代到 "
-            "|dxyz| < 0.1 m 即判收敛。因此每个历元的结果 = 基准站表头坐标 + 流动站最后一次"
-            "未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是精度，偏差应理解为这一偏移量。"
-            "这一条只说 RTK 那一列；SPP 那一列的偏移是另一回事（本数据 19–28 m，来源未查清，"
-            "见第四节与图 8-1）。",
+            "说明 1 —— 偏差不是精度指标，而是基准偏移。SPPUCCodePhase::solve 用交给它的那个"
+            "基准站坐标（默认是 RINEX 表头，给了 --base-xyz 就是那个值）建立基准站方程后直接"
+            "返回（不再迭代），流动站则迭代到 |dxyz| < 0.1 m 即判收敛。因此每个历元的结果 = "
+            "该基准坐标 + 流动站最后一次未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是"
+            "精度，偏差应理解为这一偏移量。这一条只说 RTK 那一列；SPP 那一列的偏移是它自己的"
+            "误差，不是基准项（本数据 0.01 / 9.4 / 1.7 m，见第四节）。",
         "rpt_rtk_note_ratio":
-            "说明 2 —— SPP/RTK 比值不是与参考坐标无关的数。两列虽然都对同一个基准站表头"
-            "作差，但 RTK 那一列是建立在这个表头之上的：双差把流动站解到基准站上去，而基准站"
-            "的位置就是它自己的表头坐标。所以表头自身的误差在 RTK 那一列里按构造抵消、在 SPP "
-            "那一列里全额保留（正是那个偏移的主要成分），比值里含的正是这个基准项。第四节与"
-            "图 8-1 把它拆成「偏移」与「残余」两半。",
+            "说明 2 —— SPP/RTK 比值不是与参考坐标无关的数。两列都对同一个参考坐标度量，但 "
+            "RTK 那一列是建立在这个基准站坐标之上的：双差把流动站解到基准站上去，所以那个坐标"
+            "按构造进了 RTK 解。换一个参考去量（比如 RINEX 表头——本设备上它离天线 24.9 m），"
+            "两列都会跟着动。比值带着这个依赖，第四节与图 8-1 把两列各自的偏移与残余分开来写。",
     },
 }
 

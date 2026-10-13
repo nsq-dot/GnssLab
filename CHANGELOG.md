@@ -93,6 +93,38 @@ Releases get their own section from here on.
 
 ### Fixed
 
+- **Every chapter-8 table is now in the same configuration as the figures.**
+  Section four's runs were switched to the troposphere correction and GPS
+  precise products, and its figure and SPP column were regenerated with them -
+  but the tables in sections 8, 9 and 10 kept numbers from the runs *without*
+  `--trop`, so the document disagreed with itself: figure 8-4's panel annotates
+  a fixed 3-D RMS of 0.0180 / 0.0304 / 0.0114 m while the table directly beneath
+  it said 0.0019 / 0.0051 / 0.0011 m. Both are reproducible (removing `--trop`
+  reproduces the old table to the digit, which is how the mismatch was
+  identified), but only one configuration belongs in one chapter. Everything is
+  now the corrected one, and the conclusions that move are spelled out: the
+  fixed solution's gain over the float one is **7–37x** rather than 70–222x (it
+  inherits the float solution's 2–3 cm datum offset), the Kalman filter's gain
+  is **3–11x** over the whole run and 5–26x once converged (was 4–11x / 37–89x),
+  and the residual-ratio line that did *not* move (3.7 / 5.1 / 3.3x) is now
+  labelled as the one that measures noise.
+
+- **Two commands in the chapter did not do what the chapter said.** The plot
+  one-liner that "generated this document's figures" had no `--ref-xyz`, so on a
+  machine that has `data/` it falls back to the base station's RINEX header -
+  the coordinate measured to be 24.9 m from the antenna - and draws a different
+  figure from the committed one; the reproduction section now passes the true
+  position. And the GPS run lines wrote `--trop $SP3 $CLK` where the program
+  takes `--sp3 FILE --clk FILE`, which does not run at all. Both trees were
+  re-derived from the corrected commands and compared byte for byte.
+
+- **The console's two notes about the comparison table said the SPP offset was
+  still unexplained.** It is not — it was the receivers' own header coordinate
+  all along (`rtk.md` §12) — and on the corrected runs it is 0.01 / 9.4 / 1.7 m
+  rather than 19–28 m. Both notes, in both languages, now say what the document
+  says: the RTK column is tied to the reference by construction, the SPP column
+  is not, and the ratio inherits that asymmetry.
+
 - **The chapter's SPP column was measuring the reference coordinate, not the
   solution.** Both receivers report header coordinates 0.070 m apart that sit
   **24.9 m** from the antenna. Three measurements separate the two: the same

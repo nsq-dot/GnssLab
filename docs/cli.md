@@ -165,14 +165,16 @@ series with one panel per constellation, the ENU error time series with the thre
 constellations overlaid, and the accuracy comparison as a grouped bar chart.
 
 **That first figure draws both series raw**, so its axis is a *deviation from
-the base header coordinate* and each panel annotates the offset alongside the
-RMS. Two things have to be said next to it: the RTK column is
-`xyzRover + dxyzRTK` against a base station that is itself defined by that
-reference coordinate, so its near-zero offset is structural rather than a 2 cm
-accuracy claim; and most of the SPP column's 21–33 m is a ~19–28 m offset whose
-source is still unexplained (`docs/rtk.md` §11). The same two columns with the
-offsets removed — which is what compares repeatability, and where that offset
-turns out to be a slow drift — appear as numbers only, in §4's table and prose.
+the reference coordinate* and each panel annotates the offset alongside the RMS.
+Two things have to be said next to it: the RTK column is `xyzRover + dxyzRTK`
+against a base station that is itself defined by that reference coordinate, so
+its offset is structural rather than an accuracy claim; and the SPP column's
+offset (0.01 / 9.4 / 1.7 m on this data) is its own error, not a datum term.
+`--ref-xyz` is what that reference is; omit it and it falls back to the base
+station's RINEX header, which on this equipment is 24.9 m from the antenna and
+makes both columns read ~25 m. The same two columns with the offsets removed —
+which is what compares repeatability, and where part of what is left turns out
+to be a slow drift — appear as numbers only, in §4's table and prose.
 It prints the numeric comparison table as well — SPP and RTK 3-D RMS, the SPP/RTK
 ratio in the banner line, the percentiles of the 3-D error with a count of the
 epochs whose post-fit `sigma0` is more than ten times the run's median, and the

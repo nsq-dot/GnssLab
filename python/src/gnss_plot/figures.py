@@ -863,27 +863,28 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     (121x / 30x / 330x, the console table's rightmost column). Three things
     have to be said beside it for that reading to survive:
 
-    * The reference is the *base station's RINEX header coordinate*, a nominal
-      position that nothing in this dataset can check. "Deviation from" is
+    * The reference is whatever the caller passes as ``--ref-xyz``; without it
+      the base station's RINEX header coordinate, a nominal position that on
+      this equipment sits 24.9 m from the antenna. "Deviation from" is
       therefore the honest axis title; "accuracy" is not.
-    * The RTK column reproduces that reference **by construction**:
+    * The RTK column is tied to that reference **by construction**:
       ``apps/rtk.cpp`` writes ``rtk: = xyzRover + dxyzRTK``, and the double
       difference resolves the rover relative to the base station, whose
-      position is its own header coordinate. Its 0.005-0.017 m offset is the
-      double difference's own residual (the zero baseline is a physical zero),
-      not evidence that the method is accurate to 2 cm.
-    * The SPP column is an absolute solution, and most of its 21-33 m is a
-      ~19-28 m offset whose source is still unexplained (docs/rtk.md section
-      11). The offset is annotated on every panel for exactly this reason:
-      ``annot_rtk_vs_rms`` prints it next to the RMS it is part of, so the gap
-      between the two bands can be read as the offset it largely is.
+      position is whatever coordinate the solver was given. Its 0.026-0.028 m
+      offset is the double difference's own residual (the zero baseline is a
+      physical zero), not evidence that the method is accurate to 3 cm.
+    * The SPP column is an absolute solution, and its offset is its own error
+      rather than a datum term (0.01 / 9.4 / 1.7 m on this data). The offset is
+      annotated on every panel for exactly this reason: ``annot_rtk_vs_rms``
+      prints it next to the RMS it is part of, so the gap between the two bands
+      can be read as the offset it largely is.
 
     What this figure deliberately does **not** show is the other half of the
     comparison - the same two columns with their offsets removed, which is what
-    answers "how repeatable is each solution", and where the SPP offset turns
-    out to be a slow drift rather than a constant. Those numbers live in
-    section four's table and prose (50x / 16x / 110x centred, 7.2x / 9.2x /
-    14.4x epoch-to-epoch), next to the 121x / 30x / 330x this panel annotates.
+    answers "how repeatable is each solution", and where part of what is left
+    turns out to be a slow drift rather than noise. Those numbers live in
+    section four's table and prose (16x / 9x / 35x centred, 3.7x / 5.1x / 3.3x
+    epoch-to-epoch), next to the 16x / 12x / 40x this panel annotates.
 
     **The axis is linear, and that is the point.** SPP's 3-D RMS is 2.8-13.5 m
     and RTK's is 0.08-1.13 m: the RTK band lies in the bottom few percent of the

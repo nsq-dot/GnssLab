@@ -218,6 +218,47 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_dd_cov": "{mode}: ratio median {m1} → {m2}  ·  above "
                             "threshold, independent {n1} · correlated {n2}",
 
+        # --- the zoomed windows (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d) ---
+        # Nine figures: 8-1, 8-4 and 8-6 each redrawn over one window, once per
+        # direction. {dir} is a direction's name, {win} the window as a clause,
+        # and {n} how many epochs are *drawn* - not what the window asked for,
+        # because a run too short to contain the window falls back to the whole
+        # series, and a title promising 3060 s of it while the axis carries two
+        # epochs would be the one lie the degraded path cannot afford. The
+        # fallback says so on stdout instead.
+        #
+        # Two lines, on purpose. All of that on one line runs wider than the
+        # figure and is clipped at both ends - which is worse than long, because
+        # the clipped end carries the direction the figure is about.
+        "title_rtk_spp_zoom": "SPP vs RTK: {dir} error, one panel per "
+                              "constellation\n({rover}, {win}, {n} epochs drawn)",
+        "title_rtk_fix_zoom": "RTK float vs fixed: {dir} error, one panel per "
+                              "constellation\n({rover}, {win}, {n} epochs drawn)",
+        "title_rtk_kalman_zoom": "RTK float: single-epoch LSQ vs Kalman filter, "
+                                 "{dir} error, one panel per constellation\n"
+                                 "({rover}, {win}, {n} epochs drawn)",
+        # The window as a clause, so a title can end with it. Kept out of the
+        # title keys above because the fallback prints the other of the two.
+        "zoom_win": "window {lo}-{hi} s after the first epoch, every {step}th "
+                    "epoch",
+        "zoom_win_all": "the whole run",
+        # The three directions, and the axis label every panel of one figure
+        # carries - a figure's panels are its constellations, so all three
+        # labels of one figure read the same.
+        "dir_e": "East",
+        "dir_n": "North",
+        "dir_u": "Up",
+        "axis_rtk_zoom_err": "{dir} error [m]",
+        # One line per curve, drawn in that curve's own colour. The numbers
+        # arrive preformatted - two to four decimals, following the data's own
+        # scale, because two is right for a metre-level solution and prints a
+        # fixed solution at 0.015 m as three zeroes - so nothing but digits
+        # reaches a format spec.
+        "annot_rtk_zoom_stat": "bias={bias}  σ={std}  RMS={rms} m",
+        "note_rtk_zoom_fallback": "note: figure {fig}: the run has {n} "
+                                  "epoch(s), shorter than the {lo}-{hi} s "
+                                  "window; drawing the whole run instead",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -467,6 +508,33 @@ STRINGS: dict[str, dict[str, str]] = {
         "legend_dd_cov": "双差按相关加权（Q_DD）",
         "annot_rtk_dd_cov": "{mode}: ratio 中位数 {m1} → {m2}  ·  过阈值："
                             "独立 {n1} · 相关 {n2} 个历元",
+
+        # --- 放大时间窗（图 8-1b/c/d、图 8-4b/c/d、图 8-6b/c/d）---
+        # 九张：8-1、8-4、8-6 各按方向重画一遍。{dir} 是方向名，{win} 是窗口那句话，
+        # {n} 是**绘出**了多少历元——不是窗口要了多少：run 短于窗口时会退回整段，标题若
+        # 仍写着"3060 s 的窗口"而横轴只有 2 个历元，那就是退化路径唯一不能容忍的谎。
+        # 退回时改由 stdout 说明。
+        "title_rtk_spp_zoom": "SPP 与 RTK 的{dir}误差，每个星座一个面板"
+                              "\n（{rover}，{win}，绘出 {n} 个历元）",
+        "title_rtk_fix_zoom": "RTK 浮点解与固定解的{dir}误差，每个星座一个面板"
+                              "\n（{rover}，{win}，绘出 {n} 个历元）",
+        "title_rtk_kalman_zoom": "RTK 浮点解：单历元最小二乘与卡尔曼滤波的{dir}误差，"
+                                 "每个星座一个面板\n（{rover}，{win}，绘出 {n} 个历元）",
+        # 窗口写成一句话，好让标题用它收尾。单列出来是因为整段回退时要用下面另一条。
+        "zoom_win": "首历元后 {lo}-{hi} s，每 {step} 个历元取一点",
+        "zoom_win_all": "整段",
+        # 三个方向，以及同一张图每个面板都带的那条纵轴标签——一张图的面板是它的三个星座，
+        # 所以同一张图的三条标签是同一句话。
+        "dir_e": "东向",
+        "dir_n": "北向",
+        "dir_u": "天顶",
+        "axis_rtk_zoom_err": "{dir}误差 [m]",
+        # 每条曲线一行，用该曲线自己的颜色画。数值预先格式化好再传进来——位数取 2 到 4 位、
+        # 跟着数据自己的量级走：两位对米级解正合适，而把 0.015 m 的固定解印成三个 0.00 就
+        # 毫无用处——所以格式说明符里只会出现数字。
+        "annot_rtk_zoom_stat": "偏差={bias}  σ={std}  RMS={rms} m",
+        "note_rtk_zoom_fallback": "提示：图 {fig}：该 run 只有 {n} 个历元，短于 "
+                                  "{lo}-{hi} s 的窗口；改为绘制整段",
 
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",

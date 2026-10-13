@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import numpy as np  # noqa: E402
 
-from gnss_plot import cli, rtk  # noqa: E402
+from gnss_plot import cli, figures, rtk  # noqa: E402
 
 REF = np.asarray(rtk.BASE_HEADER_XYZ, dtype=float)
 ROVER = "oem719-202203031500-1.obs"
@@ -500,13 +500,18 @@ def test_pair_by_weighting_drops_a_constellation_weighted_the_same_way():
 # the command, end to end
 # --------------------------------------------------------------------------
 
-def test_rtk_plot_writes_three_figures_and_they_are_deterministic():
+def test_rtk_plot_writes_six_figures_and_they_are_deterministic():
     """Byte-for-byte reproducibility, which chapter 7 was bitten by.
 
     The class of bug is an unordered container - a `set` of satellite ids -
     iterated before plotting, which reorders the artists and changes the PNG
     bytes without changing the picture. Generating twice and comparing hashes
     is the only reliable test for it.
+
+    Six rather than three since figures 8-1b/c/d joined the set: they take
+    figure 8-1's data and ride figure 8-1's gate, so they are present whenever
+    the float figures are - one per direction, which is the whole reason there
+    are three of them and not one.
     """
     with tempfile.TemporaryDirectory() as tmp:
         _write_run(tmp, mode="gps")
@@ -521,13 +526,16 @@ def test_rtk_plot_writes_three_figures_and_they_are_deterministic():
             assert rc == 0
             got = sorted(os.listdir(png_dir))
             assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
-                           "vis_rtk_spp_vs_rtk_ts.png"], got
+                           "vis_rtk_spp_vs_rtk_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
 
 
-def test_rtk_plot_writes_five_figures_when_the_run_was_fixed():
+def test_rtk_plot_writes_eleven_figures_when_the_run_was_fixed():
     """The two fixed-solution figures appear only for a fixed run.
 
     Same determinism requirement as the float figures - the ratio histogram
@@ -545,8 +553,15 @@ def test_rtk_plot_writes_five_figures_when_the_run_was_fixed():
             assert rc == 0
             got = sorted(os.listdir(png_dir))
             assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
-                           "vis_rtk_float_vs_fixed_ts.png", "vis_rtk_ratio_hist.png",
-                           "vis_rtk_spp_vs_rtk_ts.png"], got
+                           "vis_rtk_float_vs_fixed_ts.png",
+                           "vis_rtk_float_vs_fixed_zoom_e_ts.png",
+                           "vis_rtk_float_vs_fixed_zoom_n_ts.png",
+                           "vis_rtk_float_vs_fixed_zoom_u_ts.png",
+                           "vis_rtk_ratio_hist.png",
+                           "vis_rtk_spp_vs_rtk_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -555,12 +570,13 @@ def test_rtk_plot_writes_five_figures_when_the_run_was_fixed():
 def test_rtk_plot_draws_figure_eight_six_and_it_is_deterministic():
     """The estimator comparison, with the same byte-for-byte requirement.
 
-    `--kalman-out` is the only thing that makes this figure appear. That is
-    also what keeps the three- and five-figure assertions above valid: neither
-    of those invocations passes the flag, so neither sees a new PNG.
+    `--kalman-out` is the only thing that makes this figure and its three
+    zoomed siblings appear. That is also what keeps the six- and eleven-figure
+    assertions above valid: neither of those invocations passes the flag, so
+    neither sees a new PNG.
 
-    Neither tree here is fixed, so four figures is the whole set - the three
-    float ones plus 8-6.
+    Neither tree here is fixed, so ten figures is the whole set - the three
+    float ones and their three zoomed siblings, plus 8-6 and 8-6b/c/d.
     """
     with tempfile.TemporaryDirectory() as tmp:
         lsq_dir = os.path.join(tmp, "lsq")
@@ -583,7 +599,52 @@ def test_rtk_plot_draws_figure_eight_six_and_it_is_deterministic():
             got = sorted(os.listdir(png_dir))
             assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
                            "vis_rtk_lsq_vs_kalman_ts.png",
-                           "vis_rtk_spp_vs_rtk_ts.png"], got
+                           "vis_rtk_lsq_vs_kalman_zoom_e_ts.png",
+                           "vis_rtk_lsq_vs_kalman_zoom_n_ts.png",
+                           "vis_rtk_lsq_vs_kalman_zoom_u_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+            pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
+
+    assert pngs[0] == pngs[1], "the same input must produce the same bytes"
+
+
+def test_rtk_plot_draws_figure_eight_seven_and_it_is_deterministic():
+    """The DD-weighting comparison, with the same byte-for-byte requirement.
+
+    `--dd-cov-out` is the only thing that makes this figure appear, and that is
+    also what keeps the six- and eleven-figure assertions above valid: neither
+    of those invocations passes the flag.
+
+    The two trees differ only in the manifest's ``ddCov`` and carry different
+    ratios, so the figure has two genuinely different curves to draw. Neither
+    tree is fixed, so seven figures is the whole set - the three float ones and
+    their three zoomed siblings, plus 8-7.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        indep_dir = os.path.join(tmp, "indep")
+        cov_dir = os.path.join(tmp, "cov")
+        _write_run(indep_dir, dd_cov=None, diag_ratios=(10.0, 20.0))
+        _write_run(cov_dir, dd_cov=True, diag_ratios=(12.0, 17.0))
+
+        pngs = []
+        for run in ("a", "b"):
+            png_dir = os.path.join(tmp, "figs-" + run)
+            rc = cli.main(["rtk-plot", "--out-dir", indep_dir,
+                           "--dd-cov-out", cov_dir, "--png-dir", png_dir,
+                           "--lang", "en",
+                           "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
+            assert rc == 0
+            got = sorted(os.listdir(png_dir))
+            assert got == ["vis_rtk_accuracy_bars.png",
+                           "vis_rtk_dd_cov_ratio_ts.png",
+                           "vis_rtk_error_enu_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -600,7 +661,10 @@ def test_rtk_plot_skips_the_fix_figures_on_request():
         got = sorted(os.listdir(png_dir))
 
     assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
-                   "vis_rtk_spp_vs_rtk_ts.png"], got
+                   "vis_rtk_spp_vs_rtk_ts.png",
+                   "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
+                   "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
+                   "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
 
 
 def test_comparison_table_gains_the_fixing_table_only_when_fixed():
@@ -632,6 +696,107 @@ def test_rtk_plot_accepts_explicit_output_paths():
                        "--no-figures"])
 
     assert rc == 0
+
+
+# --------------------------------------------------------------------------
+# the zoomed windows (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d)
+# --------------------------------------------------------------------------
+
+def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
+    """Both branches of the window rule, one of which no CLI test can reach.
+
+    Every end-to-end test above drives a two-epoch synthetic run at sod
+    24517-24518, so a window 400-8060 s long is always *past the end of the
+    series* and every zoom figure takes the fallback branch there - drawn over
+    the whole run, which is the branch that must not raise. The other branch,
+    where the window is genuinely selected and the decimation applied, is the
+    one the chapter's own figures use and would otherwise be untested.
+
+    Which branch ran is read from stdout rather than inferred from the picture:
+    the fallback announces itself on exactly one line, and the honoured path is
+    silent. Asserting on that is the only way to tell them apart without
+    re-deriving the axis limits, and it also pins the announcement itself -
+    a silent fallback would produce a legitimate-looking figure that no longer
+    matches its caption.
+
+    All nine figures are driven, because they do not share a code path as
+    tightly as they share a look: the three families differ in what their two
+    series are and in which window they take, and a direction is an index into
+    an ENU triple - the one place an off-by-one would silently draw east and
+    label it north.
+    """
+    import contextlib
+    import io
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ref = np.asarray(REF, dtype=float)
+
+        def enu(e, n, u):
+            return (np.asarray(e, dtype=float), np.asarray(n, dtype=float),
+                    np.asarray(u, dtype=float))
+
+        # -- fallback: two epochs, every window past the end of them ---------
+        sod_short = np.asarray([24517.0, 24518.0])
+        spp_short = ref + np.asarray([[1.0, 2.0, 3.0], [0.0, 0.0, 0.0]])
+        rtk_short = ref + np.asarray([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
+        short_stats = rtk.error_stats(sod_short, spp_short, rtk_short, REF)
+
+        # -- honoured: a series long enough to contain every window ----------
+        # 9000 s, not 4000: 8-1's window ends 8060 s after the first epoch, so a
+        # shorter series would take the fallback branch in the one case that is
+        # supposed to prove the window is honoured.
+        sod_long = 24517.0 + np.arange(9000.0)
+        n = sod_long.size
+        ramp = np.linspace(0.0, 1.0, n)
+        spp_long = ref + np.column_stack([2.0 * ramp, np.zeros(n), np.zeros(n)])
+        rtk_long = ref + np.column_stack([np.zeros(n), 0.2 * ramp, np.zeros(n)])
+        long_stats = rtk.error_stats(sod_long, spp_long, rtk_long, REF)
+
+        # Figure 8-4's fixed series: a millimetre error on every epoch, always
+        # accepted. Figure 8-6's two series: the filter's error is a tenth of
+        # the single-epoch one, so the two curves are genuinely two curves. Both
+        # carry all three components; which one is drawn is the caller's
+        # `direction`.
+        fx_short = (("GPS", sod_short, enu(*[np.asarray([0.0, 0.0])] * 3),
+                     enu(*(np.full(2, 0.02), np.zeros(2), np.zeros(2))),
+                     np.asarray([True, True])),)
+        fx_long = (("GPS", sod_long, enu(*(np.full(n, 0.5), np.zeros(n),
+                                           np.zeros(n))),
+                    enu(*(np.full(n, 0.02), np.zeros(n), np.zeros(n))),
+                    np.ones(n, dtype=bool)),)
+        kal_short = (("GPS", sod_short,
+                      enu(*(np.asarray([0.0, 0.7]), np.zeros(2), np.zeros(2))),
+                      sod_short,
+                      enu(*(np.asarray([0.0, 0.7]), np.zeros(2), np.zeros(2)))),)
+        kal_long = (("GPS", sod_long, enu(*(np.full(n, 0.5), np.zeros(n),
+                                            np.zeros(n))),
+                     sod_long, enu(*(np.full(n, 0.05), np.zeros(n),
+                                     np.zeros(n)))),)
+
+        cases = [
+            ("8-1", figures.fig_rtk_spp_vs_rtk_zoom_ts,
+             [("GPS", sod_short, short_stats)], [("GPS", sod_long, long_stats)]),
+            ("8-4", figures.fig_rtk_float_vs_fixed_zoom_ts, fx_short, fx_long),
+            ("8-6", figures.fig_rtk_lsq_vs_kalman_zoom_ts, kal_short, kal_long),
+        ]
+
+        for prefix, fn, short_series, long_series in cases:
+            for d in range(3):
+                tag = "%s%s" % (prefix, "bcd"[d])
+                for branch, series in (("short", short_series),
+                                       ("long", long_series)):
+                    buf = io.StringIO()
+                    with contextlib.redirect_stdout(buf):
+                        path = fn(series,
+                                  os.path.join(tmp, "%s-%s-%d.png"
+                                               % (prefix, branch, d)),
+                                  direction=d)
+                    out = buf.getvalue()
+                    assert path and os.path.isfile(path), (tag, branch)
+                    if branch == "short":
+                        assert "note" in out, (tag, out)
+                    else:
+                        assert out == "", (tag, out)
 
 
 # --------------------------------------------------------------------------

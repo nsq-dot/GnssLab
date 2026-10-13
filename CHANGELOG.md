@@ -13,6 +13,83 @@ Releases get their own section from here on.
 
 ### Added
 
+- **Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: figures 8-1, 8-4 and 8-6, each
+  redrawn over one short window, once per direction.** The chapter's full-span
+  figures carry 7934 epochs - two and a quarter hours - which is what lets the
+  headline numbers be read off one picture, but it also squashes the series
+  under discussion against the bottom edge. It is worst on 8-6, whose whole
+  subject is the Kalman filter settling: that happens inside the first few
+  hundred epochs and is a pixel wide on the full run. The nine siblings take
+  101-123 epochs out of the same outputs, decimated to every 4th, 16th or 25th
+  and drawn with a marker on every survivor (8-6b/c/d the opening 400 s, where
+  the transient lives; 8-4b/c/d a long mid-run stretch, so BDS-2's rejections
+  read as repeated gaps; 8-1b/c/d the second half, where the single-point
+  solution's drift is steepest). The coarse series turns blue in these nine
+  while the subject stays red, so each curve stays followable at this zoom; the
+  legends are unchanged and only the captions say which colour is which. **No
+  solver is re-run** - the window is a slice of the existing output, which
+  `--stop` would reproduce at the cost of a second run tree - and **no option
+  was added**: the windows and the decimation are constants in `figures.py`, and
+  each figure rides its parent's gate (`--no-figures`, `--no-fix-figures`,
+  `--kalman-out`).
+
+  **Both series stay in the same panel on one shared axis; what is split is the
+  direction.** An earlier revision of these figures gave each series a lane of
+  its own, one above the other, each scaled to itself, and that is what this one
+  replaces. Two lanes on two scales cannot be read against each other at all,
+  and the vertical distance between them is not a quantity worth reading anyway:
+  SPP is an absolute solution and RTK a differential one on a zero baseline, so
+  their being 12-40x apart says what each solves for, not that two algorithms
+  disagree. Splitting by direction instead puts the size difference where it can
+  do no harm - the ENU components span an order of magnitude (BDS-2's error is
+  nearly all vertical), so one figure holding all three would have to squash
+  one of them, and each of the nine carries its per-curve bias/sigma/RMS in the
+  corner for the comparison a shared axis cannot make. It also puts the
+  convergence where a reader can find it: **on this dataset the Kalman filter's
+  transient is a vertical phenomenon** - over BDS-2's first ten epochs the error
+  is +0.68 m in U, -0.21 m in N and only -0.04 m in east, the same order as its
+  own settled noise - so 8-6b alone would suggest the filter had no transient at
+  all, while 8-6d shows the whole of it. The cause is geometry: BDS-2 is an IGSO
+  constellation with the weakest vertical observability of the three.
+
+  A run shorter than the window falls back to drawing the whole series,
+  undecimated, says so on stdout, and drops the window from the title rather
+  than promising seconds its axis does not carry. Every one of the seven
+  existing full-span `vis_rtk_*.png` is byte-identical to before, and the five
+  exact filename assertions in `tests/test_rtk_plot.py` moved with the new
+  names.
+
+- **Chapter 8's exercise 3: the double differences now carry their covariance,
+  and it changes almost nothing.** `differenceSat` weighted each double
+  difference as if it were independent — `1/(1/w_rover + 1/w_base)` — although
+  every DD of one observation type shares the datum satellite's single
+  difference, which leaves a covariance `q_datum` between pairs. Behind
+  `--dd-cov` it now builds `Q_DD = C·Q_SD·Cᵀ`, block-diagonal per observation
+  type (the diagonal is exactly the old variance-addition weight; only the
+  off-diagonal is new), and both solvers take its inverse as the weight matrix.
+  `EquSys::obsCov` being empty leaves the old diagonal path bit-identical, so
+  every byte-exact anchor survives; `fixSolution` and LAMBDA needed no change at
+  all, because they already consume the full `Q_N` and the correlation reaches
+  it by itself. Measured on the chapter's zero baseline: the SPP column does not
+  move (it is computed before the differencing — a clean control), the float 3-D
+  RMS moves 5–8%, the ratio median LAMBDA consumes moves 5–12%, and **no fix
+  decision flips** (the fixed fraction, the fixed RMS and the worst accepted
+  error are unchanged to the millimetre). An effect of order 1/n with n = 6–8
+  satellites is what the theory predicts; the ratio's own margin is what keeps
+  it away from the decisions. `examples/diff_station --dd-cov` prints the matrix,
+  and `tests/test_rtk_equations.py` pins it against a hand-computable case.
+
+- **Figure 8-7, and `rtk-plot --dd-cov-out`.** The new figure draws the ratio
+  test statistic — the quantity the fixing decision actually turns on — for the
+  same configuration solved with and without the double-difference covariance,
+  one panel per constellation. The second tree is named by a flag rather than
+  inferred, for the same reason figure 8-6's is: `apps/rtk.cpp` writes
+  `<rover>_<sys>_rtk_float.out` for both weightings, so two of them in one tree
+  silently overwrite each other. Which side is which is read from each run's
+  manifest (the `ddCov` field; absent means independent, via
+  `rtk.DEFAULT_DD_COV`), never from argument order, and a constellation whose
+  two runs agree on the weighting is dropped rather than drawn against itself.
+
 - **Figure 8-6, and the section it belongs to.** Chapter 8's Kalman section had
   a table and no figure, while every neighbouring section had one. The new
   figure draws the single-epoch least-squares float solution against the

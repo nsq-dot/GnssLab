@@ -593,24 +593,24 @@ def fix_summary(sod, spp_xyz, fixed_xyz, ratio, ref_xyz, threshold):
     }
 
 
-def fixed_series(result, threshold=None):
-    """Inputs for :func:`gnss_plot.figures.fig_rtk_float_vs_fixed_ts`.
+def fixed_series_enu(result, threshold=None):
+    """Inputs for the zoomed float-versus-fixed figures, **by component**.
 
-    ``(label, sod, mag_float, mag_fixed, accepted)`` for one run, or None when
-    the run was not fixed. `mag_float` and `mag_fixed` are 3-D error magnitudes
-    in metres; `accepted` is the boolean mask the figure draws only the fixed
-    series inside.
+    ``(label, sod, enu_float, enu_fixed, accepted)`` for one run, or None when
+    the run was not fixed. ``enu_*`` are ``(E, N, U)`` triples of arrays of
+    signed errors in metres - the figures that draw one direction at a time need
+    the components, where :func:`fixed_series` hands back their magnitude.
 
-    The float magnitude comes from the same arrays the float figures use, so the
-    grey series here and the series in figures 8-1/8-2 cannot drift apart.
+    A fixed solution's *signed* error is what a reader has to see to judge
+    whether it is centred; a magnitude is not. Both figures are fed from here so
+    there is one file-reading path, not two.
+
+    `accepted` is the boolean mask the figure draws only the fixed series
+    inside.
     """
     fix = result.get("fix")
     if not fix:
         return None
-
-    def mag(enu):
-        e, nu, u = (np.asarray(a, dtype=float) for a in enu)
-        return np.sqrt(e ** 2 + nu ** 2 + u ** 2)
 
     if threshold is None:
         threshold = fix["threshold"]
@@ -620,8 +620,31 @@ def fixed_series(result, threshold=None):
     stats_all = fix["stats_all"]
     if stats_all is None:
         return None
+    enu = lambda s: tuple(np.asarray(a, dtype=float) for a in s["rtk_enu"])
     return (result["label"], np.asarray(result["sod"], dtype=float),
-            mag(result["stats"]["rtk_enu"]), mag(stats_all["rtk_enu"]), accepted)
+            enu(result["stats"]), enu(stats_all), accepted)
+
+
+def fixed_series(result, threshold=None):
+    """Inputs for :func:`gnss_plot.figures.fig_rtk_float_vs_fixed_ts`.
+
+    ``(label, sod, mag_float, mag_fixed, accepted)`` for one run, or None when
+    the run was not fixed. `mag_float` and `mag_fixed` are 3-D error magnitudes
+    in metres; `accepted` is the boolean mask the figure draws only the fixed
+    series inside.
+
+    The float magnitude comes from the same arrays the float figures use, so the
+    grey series here and the series in figures 8-1/8-2 cannot drift apart. The
+    components are read once, in :func:`fixed_series_enu`; this is that result
+    with the magnitude taken, so the two figures' inputs cannot disagree.
+    """
+    series = fixed_series_enu(result, threshold)
+    if series is None:
+        return None
+    def mag(enu):
+        e, nu, u = enu
+        return np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+    return (series[0], series[1], mag(series[2]), mag(series[3]), series[4])
 
 
 # ---------------------------------------------------------------------------
@@ -721,13 +744,12 @@ def pair_by_estimator(runs_a, runs_b, modes=None) -> list[dict]:
                       modes)
 
 
+def estimator_series_enu(pair: dict, ref_xyz):
+    """Inputs for the zoomed estimator figures, **by component**.
 
-def estimator_series(pair: dict, ref_xyz):
-    """Inputs for :func:`gnss_plot.figures.fig_rtk_lsq_vs_kalman_ts`.
-
-    ``(label, sod_lsq, mag_lsq, sod_kal, mag_kal)``, or None when either run
-    parsed to nothing. The two magnitudes are 3-D error in metres against
-    `ref_xyz`.
+    ``(label, sod_lsq, enu_lsq, sod_kal, enu_kal)``, or None when either run
+    parsed to nothing. ``enu_*`` are ``(E, N, U)`` triples of arrays of signed
+    errors in metres against `ref_xyz`.
 
     Each series carries its **own** time base. The two come from separate runs
     of separate files, and nothing in the format promises they share an epoch
@@ -736,17 +758,37 @@ def estimator_series(pair: dict, ref_xyz):
     samples at the wrong times without looking wrong, which is the failure
     `fig_rtk_error_enu_ts` documents for the same reason.
     """
-    def magnitude(run):
+    def components(run):
         sod, _spp, xyz = load_rtk_float(run["out"])
-        e, nu, u = enu_errors(xyz, ref_xyz)
-        return (np.asarray(sod, dtype=float),
-                np.sqrt(e ** 2 + nu ** 2 + u ** 2))
+        return np.asarray(sod, dtype=float), enu_errors(xyz, ref_xyz)
 
-    sod_l, mag_l = magnitude(pair["lsq"])
-    sod_k, mag_k = magnitude(pair["kalman"])
+    sod_l, enu_l = components(pair["lsq"])
+    sod_k, enu_k = components(pair["kalman"])
     if sod_l.size == 0 or sod_k.size == 0:
         return None
-    return pair["label"], sod_l, mag_l, sod_k, mag_k
+    return pair["label"], sod_l, enu_l, sod_k, enu_k
+
+
+def estimator_series(pair: dict, ref_xyz):
+    """Inputs for :func:`gnss_plot.figures.fig_rtk_lsq_vs_kalman_ts`.
+
+    ``(label, sod_lsq, mag_lsq, sod_kal, mag_kal)``, or None when either run
+    parsed to nothing. The two magnitudes are 3-D error in metres against
+    `ref_xyz`.
+
+    The components are read once, in :func:`estimator_series_enu`; this is that
+    result with the magnitude taken, so the full-span and zoomed figures of
+    figure 8-6 cannot disagree about what the run did.
+    """
+    series = estimator_series_enu(pair, ref_xyz)
+    if series is None:
+        return None
+    def mag(enu):
+        e, nu, u = enu
+        return np.sqrt(e ** 2 + nu ** 2 + u ** 2)
+    return (series[0], series[1], mag(series[2]), series[3], mag(series[4]))
+
+
 # ---------------------------------------------------------------------------
 # the weighting comparison (figure 8-7, chapter 8 exercise 3)
 # ---------------------------------------------------------------------------

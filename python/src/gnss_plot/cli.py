@@ -832,6 +832,22 @@ def cmd_rtk_plot(args) -> int:
             rover=rover, lang=lang),
     ]
 
+    # Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: the same three comparisons
+    # redrawn over one short window, once per direction, so the series under
+    # discussion is not squashed against the bottom edge by the coarse one. Nine
+    # figures, three per parent. They take the same data as their parents and
+    # ride the same gates, so `--no-figures`, `--no-fix-figures` and a missing
+    # `--kalman-out` suppress them exactly as they suppress the full-span
+    # versions. The window and the decimation are fixed in figures.py, not
+    # exposed as options: they were chosen by reading this run, and a flag would
+    # invite a figure whose caption no longer describes it.
+    for d in range(len(figures.ZOOM_DIRS)):
+        figs.append(figures.fig_rtk_spp_vs_rtk_zoom_ts(
+            [(r["label"], r["sod"], r["stats"]) for r in results],
+            os.path.join(png_dir, "vis_rtk_spp_vs_rtk_zoom_%s_ts.png"
+                         % figures.ZOOM_DIRS[d]),
+            rover=rover, lang=lang, direction=d))
+
     # Figures 8-4 and 8-5 exist only when the run was fixed, and they are the
     # reason the chapter's exercise 2 can be read off a picture rather than a
     # table. `--no-fix-figures` suppresses them for a run that was fixed but is
@@ -847,6 +863,17 @@ def cmd_rtk_plot(args) -> int:
             [(r["label"], r["fix"]["ratios"]) for r in fixed],
             os.path.join(png_dir, "vis_rtk_ratio_hist.png"),
             rover=rover, lang=lang, threshold=threshold))
+        # The zoomed siblings want the ENU components rather than the 3-D
+        # magnitudes their parent draws, so they read the same run through the
+        # other entry point. `fixed_series` is that result with the magnitude
+        # taken, so the two cannot disagree about what the run did.
+        series_enu = [s for s in (rtk.fixed_series_enu(r) for r in fixed) if s]
+        for d in range(len(figures.ZOOM_DIRS)):
+            figs.append(figures.fig_rtk_float_vs_fixed_zoom_ts(
+                series_enu,
+                os.path.join(png_dir, "vis_rtk_float_vs_fixed_zoom_%s_ts.png"
+                             % figures.ZOOM_DIRS[d]),
+                rover=rover, lang=lang, direction=d))
     elif results and not fixed and not args.no_fix_figures:
         _warn("no <rover>_<sys>_rtk_fixed.out beside the float runs; "
               "figures 8-4 and 8-5 need a run with --fix")
@@ -877,6 +904,15 @@ def cmd_rtk_plot(args) -> int:
                     series,
                     os.path.join(png_dir, "vis_rtk_lsq_vs_kalman_ts.png"),
                     rover=rover, lang=lang))
+                series_enu = [s for s in (rtk.estimator_series_enu(p, ref_xyz)
+                                          for p in pairs) if s]
+                for d in range(len(figures.ZOOM_DIRS)):
+                    figs.append(figures.fig_rtk_lsq_vs_kalman_zoom_ts(
+                        series_enu,
+                        os.path.join(png_dir,
+                                     "vis_rtk_lsq_vs_kalman_zoom_%s_ts.png"
+                                     % figures.ZOOM_DIRS[d]),
+                        rover=rover, lang=lang, direction=d))
             else:
                 _warn("no constellation is in both trees with a manifest "
                       "naming a different estimator; figure 8-6 needs one run "

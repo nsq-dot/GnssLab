@@ -881,6 +881,41 @@ def cmd_rtk_plot(args) -> int:
                 _warn("no constellation is in both trees with a manifest "
                       "naming a different estimator; figure 8-6 needs one run "
                       "per constellation from each")
+
+    # Figure 8-7 is chapter 8's exercise 3: the same configuration solved twice,
+    # once with the double differences weighted as independent (the default, and
+    # the base tree) and once with their full covariance Q_DD = C*Q_SD*C^T.
+    #
+    # Two trees for the same reason figure 8-6 needs them - apps/rtk.cpp writes
+    # <rover>_<sys>_rtk_float.out for every run, so two weighting settings in
+    # one tree overwrite each other. Which side is which is read from each
+    # manifest's ddCov field, never from the argument order, so the two flags
+    # can be given either way round, and a constellation whose two runs agree on
+    # the weighting is dropped rather than drawn against itself.
+    #
+    # This figure is the ratio test rather than a position error: LAMBDA
+    # consumes the ambiguity covariance, so the weighting reaches the *fix
+    # decision* through that statistic first. Unlike figures 8-4 and 8-5 it is
+    # not gated on --no-fix-figures, because it is a comparison of two runs
+    # rather than a view of one run's fixing.
+    if args.dd_cov_out:
+        cov_dir = _resolve_out_dir(root, args.dd_cov_out)
+        if not os.path.isdir(cov_dir):
+            _warn(f"--dd-cov-out {cov_dir} does not exist; figure 8-7 skipped")
+        else:
+            other = rtk.select_runs(rtk.find_runs(cov_dir), rover=rover,
+                                    modes=args.sys)
+            pairs = rtk.pair_by_weighting(runs, other)
+            series = [s for s in (rtk.weighting_series(p) for p in pairs) if s]
+            if series:
+                figs.append(figures.fig_rtk_dd_cov_ratio_ts(
+                    series,
+                    os.path.join(png_dir, "vis_rtk_dd_cov_ratio_ts.png"),
+                    rover=rover, lang=lang))
+            else:
+                _warn("no constellation is in both trees with a manifest "
+                      "naming a different double-difference weighting; figure "
+                      "8-7 needs one run per constellation from each")
     print()
     print(t(lang, "saved_to", dir=png_dir))
     for f in figs:
@@ -1043,6 +1078,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "--estimator kalman; enables figure 8-6, which draws "
                          "the least-squares float solution against the filter's. "
                          "Independent of --no-fix-figures")
+    rk.add_argument("--dd-cov-out", dest="dd_cov_out", metavar="DIR",
+                    help="second output tree from a --dd-cov run, for figure "
+                         "8-7 (chapter 8 exercise 3)")
     rk.add_argument("--rover", help="rover basename (default: every rover found)")
     rk.add_argument("--sys", action="append", default=None,
                     choices=list(_RTK_MODES),

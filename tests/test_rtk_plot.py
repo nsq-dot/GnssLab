@@ -39,7 +39,7 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
                spp_offsets=((3.0, 4.0, 12.0), (0.0, 0.0, 0.0)),
                sod0=24517.0, n_diag=2,
                fixed_ratios=None, fixed_offsets=None, threshold=3.0,
-               estimator="lsq"):
+               estimator="lsq", dd_cov=None, diag_ratios=None):
     """Write one synthetic run and return the directory it went into.
 
     `fixed_ratios` turns on the `--fix` half: it writes the fixed-solution file
@@ -47,11 +47,16 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
     manifest, which is where the reader takes the threshold from. Left None, the
     run looks exactly like one without ``--fix``, fixed file and all.
 
+    `diag_ratios` fills the diagnostic's ``ratio`` column on its own, for a
+    figure that reads that column without needing the fixed-solution file.
+
     `estimator` goes into the manifest under ``"estimator"``. Passing **None
     omits the key entirely**, which is what the chapter's own runs under
     ``output/rtk/full`` look like - their manifests were written before the
     field existed. That omission is the case `rtk.estimator_of` has to default,
-    so the fixture has to be able to reproduce it.
+    so the fixture has to be able to reproduce it. `dd_cov` works the same way
+    under ``"ddCov"``, and the same reasoning applies: every run predating the
+    flag omits the key, and its absence has to mean "weighted as independent".
     """
     os.makedirs(directory, exist_ok=True)
     out = os.path.join(directory, "%s_%s%s" % (ROVER, mode, rtk.OUT_SUFFIX))
@@ -71,7 +76,11 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
                 "nSDsats,absDxyz,sigma0,postfitRms,"
                 "nAmb,ratio,fixed,absDxyzFixed\n")
         for i in range(n_diag):
-            ratio = fixed_ratios[i] if (fixed_ratios and i < len(fixed_ratios)) else 0.0
+            ratio = 0.0
+            if diag_ratios and i < len(diag_ratios):
+                ratio = diag_ratios[i]
+            elif fixed_ratios and i < len(fixed_ratios):
+                ratio = fixed_ratios[i]
             accepted = 1 if (fixed_ratios and ratio > threshold) else 0
             f.write("%.6f,32,28,24,15,15,27.950182,G08,0,7,24.953518,"
                     "0.062900,0.023306,12,%.6f,%d,24.938435\n"
@@ -106,10 +115,12 @@ def _write_run(directory, mode="gps", rtk_offsets=((0.0, 0.0, 0.0),
     with open(manifest, "w", encoding="utf-8") as f:
         f.write('{"sys": "%s", "sysLabel": "SYNTHETIC %s", "epochs": %d,'
                 ' "cutOffElevation": 10, "fixAmbiguity": %s,'
-                ' "ratioThreshold": %s%s}\n'
+                ' "ratioThreshold": %s%s%s}\n'
                 % (mode, mode.upper(), len(rtk_offsets),
                    "true" if fixed_ratios is not None else "false", threshold,
-                   (', "estimator": "%s"' % estimator) if estimator else ""))
+                   (', "estimator": "%s"' % estimator) if estimator else "",
+                   (', "ddCov": %s' % ("true" if dd_cov else "false"))
+                   if dd_cov is not None else ""))
     return directory
 
 
@@ -430,6 +441,57 @@ def test_pair_by_estimator_drops_a_constellation_solved_twice_the_same_way():
         _write_run(a, mode="gps", estimator="lsq")
         _write_run(b, mode="gps", estimator="lsq")
         pairs = rtk.pair_by_estimator(rtk.find_runs(a), rtk.find_runs(b))
+
+    assert pairs == []
+
+
+# --------------------------------------------------------------------------
+# the weighting comparison (figure 8-7, chapter 8 exercise 3)
+# --------------------------------------------------------------------------
+
+def test_pair_by_weighting_takes_each_side_from_the_manifest():
+    """Swapping the two arguments must not swap what the two curves mean.
+
+    Same reasoning as the estimator pairing: both trees arrive as nothing but a
+    directory, so only the manifests say which one weighted the double
+    differences with their covariance. A pairing that trusted the argument order
+    would draw the correlated run as the independent one - and on this chapter's
+    data the two curves nearly coincide, so the swap would look entirely
+    plausible while being exactly backwards.
+
+    The first tree leaves ``ddCov`` out of the manifest altogether, which is
+    what every run written before the flag looks like; its absence has to mean
+    "weighted as independent" rather than "unknown", or the chapter's existing
+    runs could never be paired with anything.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        a = os.path.join(tmp, "a")
+        b = os.path.join(tmp, "b")
+        _write_run(a, mode="gps", dd_cov=None)
+        _write_run(a, mode="bds2", dd_cov=None)        # one side only
+        _write_run(b, mode="gps", dd_cov=True)
+        _write_run(b, mode="bds3", dd_cov=True)        # the other side only
+
+        runs_a = rtk.select_runs(rtk.find_runs(a))
+        runs_b = rtk.select_runs(rtk.find_runs(b))
+        forward = rtk.pair_by_weighting(runs_a, runs_b)
+        backward = rtk.pair_by_weighting(runs_b, runs_a)
+
+    assert [p["mode"] for p in forward] == ["gps"]
+    assert [p["mode"] for p in backward] == ["gps"]
+    assert forward[0]["indep"]["out"] == backward[0]["indep"]["out"]
+    assert forward[0]["cov"]["out"] == backward[0]["cov"]["out"]
+    assert forward[0]["indep"]["out"] != forward[0]["cov"]["out"]
+
+
+def test_pair_by_weighting_drops_a_constellation_weighted_the_same_way():
+    """Two runs weighted the same way would plot a line against itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        a = os.path.join(tmp, "a")
+        b = os.path.join(tmp, "b")
+        _write_run(a, mode="gps", dd_cov=None)
+        _write_run(b, mode="gps", dd_cov=None)
+        pairs = rtk.pair_by_weighting(rtk.find_runs(a), rtk.find_runs(b))
 
     assert pairs == []
 

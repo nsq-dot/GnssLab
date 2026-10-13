@@ -41,6 +41,7 @@ __all__ = [
     "fig_rtk_float_vs_fixed_ts",
     "fig_rtk_ratio_hist",
     "fig_rtk_lsq_vs_kalman_ts",
+    "fig_rtk_dd_cov_ratio_ts",
 ]
 
 # Colour slots (blue / orange / aqua), plus ink, grid and zero-line greys.
@@ -1343,3 +1344,83 @@ def fig_rtk_lsq_vs_kalman_ts(panels, out_png, rover="", lang="en"):
               else np.asarray([], dtype=float))
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return _finish(fig, out_png)
+
+
+def fig_rtk_dd_cov_ratio_ts(panels, out_png, rover="", lang="en", threshold=3.0):
+    """Figure 8-7: the ratio test statistic under both DD weightings.
+
+    `panels` is a sequence of ``(label, sod_indep, ratio_indep, sod_cov,
+    ratio_cov)``. Each series carries its **own** `sod` - the two runs are
+    separate invocations and the file format promises no shared epoch grid.
+
+    Grey is the run that weighted the double differences as independent (the
+    default, and the byte-exact path); red the one that used their full
+    covariance ``Q_DD = C*Q_SD*C^T``, which is chapter 8 exercise 3. Same
+    grey/red grammar as figures 8-1 and 8-4: grey is what the eye discounts.
+
+    **Why the ratio, of all quantities.** LAMBDA consumes the ambiguity
+    covariance, so a different stochastic model reaches the *fix decision*
+    through this statistic before it reaches anything else. The figure exists
+    to answer one question - does knowing the double differences are correlated
+    change which epochs pass - and on this dataset it does not: the medians
+    shift by 5-12% and every ratio stays far above the threshold line, which is
+    the flat dashed one at the bottom. The panels carry both medians and the
+    count above the threshold so that the answer is a number, not an impression.
+
+    A ratio of zero is not a small ratio: the diagnostics write 0 for "no
+    integer candidate existed". Those epochs become NaN and leave a gap rather
+    than being drawn as a ratio at the origin.
+
+    Linear axes, one scale per panel, like the rest of the chapter's figures.
+    """
+    panels = [(str(p[0]), *(np.asarray(a, dtype=float) for a in p[1:]))
+              for p in panels]
+    n = max((int(p[1].size) for p in panels), default=0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
+    fig.suptitle(t(lang, "title_rtk_dd_cov", rover=rover or "-", n=n),
+                 fontsize=12)
+
+    for k, (ax, (label, sod_i, r_i, sod_c, r_c)) in enumerate(
+            zip(axes, panels)):
+        gi = np.where(r_i > 0.0, r_i, np.nan)
+        gc = np.where(r_c > 0.0, r_c, np.nan)
+        # The two series overlap almost everywhere - that IS the result - so the
+        # grey one is drawn wider and behind, and the red one thinner and on
+        # top: with equal widths the red would simply hide the grey, and a
+        # legend promising two series that only one of them delivers is worse
+        # than no comparison at all.
+        ax.plot(sod_i, _break_gaps(sod_i, gi), color=C_SPP, lw=0.9, alpha=0.9,
+                zorder=2, label=t(lang, "legend_dd_indep"))
+        ax.plot(sod_c, _break_gaps(sod_c, gc), color=C_RTK, lw=0.55, alpha=0.9,
+                zorder=3, label=t(lang, "legend_dd_cov"))
+        ax.axhline(threshold, color=ZERO, lw=0.9, ls="--", zorder=1)
+
+        mi = float(np.nanmedian(gi)) if sod_i.size else float("nan")
+        mc = float(np.nanmedian(gc)) if sod_c.size else float("nan")
+        # Preformatted, so no NaN or zero reaches a format spec in the string.
+        ax.text(0.01, 0.97,
+                t(lang, "annot_rtk_dd_cov", mode=label,
+                  m1=("%.0f" % mi) if np.isfinite(mi) else "-",
+                  m2=("%.0f" % mc) if np.isfinite(mc) else "-",
+                  n1=int(np.nansum(r_i >= threshold)),
+                  n2=int(np.nansum(r_c >= threshold))),
+                transform=ax.transAxes, va="top", fontsize=8, color=INK,
+                bbox=dict(facecolor="white", alpha=0.82, edgecolor="none",
+                          pad=2.0))
+        ax.set_title(label, loc="left", fontsize=10, color=INK)
+        if k == 0:
+            ax.legend(fontsize=9, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    for ax in axes:
+        ax.set_ylim(bottom=0.0)
+    axes[1].set_ylabel(t(lang, "axis_rtk_ratio"), fontsize=10)
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    sods = [s for _l, s_i, _a, s_c, _b in panels for s in (s_i, s_c)]
+    _sod_axis(axes[-1], np.concatenate(sods) if sods
+              else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    return _finish(fig, out_png)
+
+

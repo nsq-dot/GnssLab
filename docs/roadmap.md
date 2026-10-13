@@ -8,11 +8,14 @@ Stated plainly, because a reader should not have to infer it from the source:
   BDS-2 + BDS-3 together - but not GPS plus BeiDou, because a double difference
   needs a single reference satellite and a mixed system has one per constellation.
   See the last section of [rtk.md](rtk.md).
-- **The double differences are treated as uncorrelated.** `differenceStation`
+- **The double differences are weighted as uncorrelated by default.** `differenceSat`
   combines the two single-difference weights as `1/(1/w_rover + 1/w_base)`, one
-  equation at a time; the strict form is `Q_DD = C·Q_SD·Cᵀ`. That is chapter 8's
-  exercise 3 and it is not done - and it matters more to the FIXED solution than
-  to the float one, because that covariance is exactly what LAMBDA is given.
+  equation at a time; the strict form, behind `--dd-cov`, is `Q_DD = C·Q_SD·Cᵀ`
+  (chapter 8's exercise 3). Measured on the chapter's zero baseline the strict
+  weighting moves the ratio test by 5-12% and the float RMS by 5-8%, and flips
+  no fix decision at all - see [rtk.md](rtk.md) §11. That covariance is exactly
+  what LAMBDA is given, so the effect should be larger wherever the ratio has
+  less margin than it does on this dataset.
 - **No Kalman filter in the SPP program.** `spp_if` still parses `estimator = 2`
   and ignores it, always solving by least squares. The RTK program does have one,
   behind `--estimator kalman`.

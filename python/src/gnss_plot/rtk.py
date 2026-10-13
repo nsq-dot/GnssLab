@@ -67,6 +67,10 @@ __all__ = [
     "estimator_of",
     "pair_by_estimator",
     "estimator_series",
+    "DEFAULT_DD_COV",
+    "CORRELATED_DD_COV",
+    "pair_by_weighting",
+    "weighting_series",
     "fix_summary",
     "fixed_series",
     "find_runs",
@@ -667,6 +671,34 @@ def _index_by_mode(runs, wanted: tuple) -> dict:
     return out
 
 
+def _pair_runs(runs_a, runs_b, key, left, right, left_name, right_name,
+               modes) -> list[dict]:
+    """Pair two run lists by constellation under a two-valued label.
+
+    The shared body of :func:`pair_by_estimator` and
+    :func:`pair_by_weighting`. `key` reads the label out of a run; `left` and
+    `right` are the two values it can take, named in the result as
+    ``left_name``/``right_name``. A pair that does not carry both values is
+    dropped.
+    """
+    wanted = tuple(modes) if modes else MODES
+    a = _index_by_mode(runs_a, wanted)
+    b = _index_by_mode(runs_b, wanted)
+
+    common = set(a) & set(b)
+    ordered = [m for m in MODES if m in common]
+    ordered += sorted(m for m in common if m not in MODES)
+
+    pairs = []
+    for mode in ordered:
+        sides = {key(a[mode]): a[mode], key(b[mode]): b[mode]}
+        if left not in sides or right not in sides:
+            continue
+        pairs.append({"mode": mode, "label": mode_label(mode),
+                      left_name: sides[left], right_name: sides[right]})
+    return pairs
+
+
 def pair_by_estimator(runs_a, runs_b, modes=None) -> list[dict]:
     """Pair two run lists by constellation, one run per estimator.
 
@@ -684,27 +716,10 @@ def pair_by_estimator(runs_a, runs_b, modes=None) -> list[dict]:
     drawn. Two least-squares runs would plot a line against itself - a picture
     that looks like a finding and means nothing.
     """
-    wanted = tuple(modes) if modes else MODES
-    a = _index_by_mode(runs_a, wanted)
-    b = _index_by_mode(runs_b, wanted)
+    return _pair_runs(runs_a, runs_b, estimator_of,
+                      DEFAULT_ESTIMATOR, KALMAN_ESTIMATOR, "lsq", "kalman",
+                      modes)
 
-    common = set(a) & set(b)
-    ordered = [m for m in MODES if m in common]
-    ordered += sorted(m for m in common if m not in MODES)
-
-    pairs = []
-    for mode in ordered:
-        sides = {estimator_of(a[mode]): a[mode],
-                 estimator_of(b[mode]): b[mode]}
-        if DEFAULT_ESTIMATOR not in sides or KALMAN_ESTIMATOR not in sides:
-            continue
-        pairs.append({
-            "mode": mode,
-            "label": mode_label(mode),
-            "lsq": sides[DEFAULT_ESTIMATOR],
-            "kalman": sides[KALMAN_ESTIMATOR],
-        })
-    return pairs
 
 
 def estimator_series(pair: dict, ref_xyz):
@@ -732,6 +747,74 @@ def estimator_series(pair: dict, ref_xyz):
     if sod_l.size == 0 or sod_k.size == 0:
         return None
     return pair["label"], sod_l, mag_l, sod_k, mag_k
+# ---------------------------------------------------------------------------
+# the weighting comparison (figure 8-7, chapter 8 exercise 3)
+# ---------------------------------------------------------------------------
+
+#: Weight of the double differences when the manifest says nothing. Absent
+#: ``ddCov`` means the run weighted them as independent, which is what every
+#: run predating the flag did - and what ``apps/rtk.cpp`` still does by default.
+DEFAULT_DD_COV = False
+
+#: The other side of figure 8-7: the full covariance Q_DD = C*Q_SD*C^T.
+CORRELATED_DD_COV = True
+
+
+def _dd_cov_of(run: dict) -> bool:
+    """Whether a run weighted the double differences with their covariance."""
+    path = run.get("manifest")
+    manifest = io.read_manifest(path) if path and os.path.isfile(path) else None
+    value = (manifest or {}).get("ddCov")
+    # json's false is not Python's False, and a missing key is not a JSON false.
+    if value is None:
+        return DEFAULT_DD_COV
+    return bool(value)
+
+
+def pair_by_weighting(runs_a, runs_b, modes=None) -> list[dict]:
+    """Pair two run lists by constellation, one run per DD weighting.
+
+    Returns ``[{"mode", "label", "indep", "cov"}]``, ordered like
+    :data:`MODES`, holding only the constellations both lists carry and whose
+    two runs genuinely differ in weighting. Same contract as
+    :func:`pair_by_estimator`, and same reasoning: which side is which is read
+    from the manifests, so swapping the two ``--out-dir``s still draws the
+    correlated run as the correlated one, and a pair that claims the same
+    weighting on both sides is dropped rather than drawn against itself.
+    """
+    return _pair_runs(runs_a, runs_b, _dd_cov_of,
+                      DEFAULT_DD_COV, CORRELATED_DD_COV, "indep", "cov", modes)
+
+
+def weighting_series(pair: dict):
+    """Inputs for :func:`gnss_plot.figures.fig_rtk_dd_cov_ratio_ts`.
+
+    ``(label, sod_indep, ratio_indep, sod_cov, ratio_cov)``, or None when
+    either run has no diagnostic file. The ratio is the ambiguity-resolution
+    test statistic the run's own fixed solution was judged by - the one
+    quantity in the run that the DD weighting reaches directly, since LAMBDA
+    consumes the ambiguity covariance it produces.
+
+    Each series carries its own ``sod``; the two runs were written by separate
+    invocations and the format promises no shared epoch grid.
+    """
+    def series(run):
+        path = run.get("diag")
+        if not path or not os.path.isfile(path):
+            return None
+        sod, cols, _datum = load_rtk_diag(path)
+        # ``ratio`` is read by name rather than by position, and a diag file
+        # from a run that never attempted a fix has the column but all zeroes -
+        # the figure turns those into gaps.
+        ratio = cols.get("ratio")
+        if ratio is None or sod.size == 0:
+            return None
+        return (np.asarray(sod, dtype=float), np.asarray(ratio, dtype=float))
+
+    a, b = series(pair["indep"]), series(pair["cov"])
+    if a is None or b is None or a[0].size == 0 or b[0].size == 0:
+        return None
+    return pair["label"], a[0], a[1], b[0], b[1]
 
 
 def load_run(run: dict, ref_xyz) -> dict:

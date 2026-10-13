@@ -155,8 +155,9 @@ PYTHONPATH=python/src python -m gnss_plot.cli cs-plot --lang zh --series sample-
 
 ```
 gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--kalman-out DIR]
-              [--rover NAME] [--sys gps|bds2|bds3 ...] [--base-obs FILE]
-              [--ref-xyz X,Y,Z] [--png-dir DIR] [--no-figures] [--lang en|zh]
+              [--dd-cov-out DIR] [--rover NAME] [--sys gps|bds2|bds3 ...]
+              [--base-obs FILE] [--ref-xyz X,Y,Z] [--png-dir DIR]
+              [--no-figures] [--lang en|zh]
 ```
 
 Plots the chapter-8 RTK float solution: SPP against RTK as a 3-D error time
@@ -194,15 +195,26 @@ solution against the filter's, per constellation, on figure 8-1's window. Both
 of its series are float solutions, so it is not a fixing figure and
 `--no-fix-figures` does not touch it.
 
+`--dd-cov-out DIR` names a second tree holding the same constellations solved
+with `--dd-cov` — the double differences weighted with their full covariance
+`Q_DD = C·Q_SD·Cᵀ` instead of independently (chapter 8's exercise 3) — and adds
+**figure 8-7**: the ratio test statistic under both weightings, per
+constellation. It is the ratio rather than a position error because LAMBDA
+consumes the ambiguity covariance, so a different stochastic model reaches the
+*fix decision* through that statistic first. Neither series is a fixing figure:
+the flag is independent of `--no-fix-figures`.
+
 The two trees have to be **separate directories**, which is why this takes a
 directory rather than being inferred from `--out-dir`: `apps/rtk.cpp` writes
 `<rover>_<sys>_rtk_float.out` for every estimator, so two estimators in one tree
 overwrite each other — and a recursive `--out-dir` search, whose longer-run-wins
 rule is meant to keep a smoke run from replacing a full one, would hide that it
-happened. Which run is which is read from each run's **manifest**, never from
-the order the two flags were given. A constellation is drawn only if both trees
-carry it; a missing tree, or nothing in common, warns and skips the figure
-rather than failing.
+happened. The same holds for `--dd-cov-out`: two weightings in one tree
+overwrite each other too. Which run is which is read from each run's
+**manifest** — the estimator for figure 8-6, the `ddCov` field for figure 8-7 —
+never from the order the two flags were given. A constellation is drawn only if
+both trees carry it and the two runs genuinely differ; a missing tree, or
+nothing in common, warns and skips the figure rather than failing.
 
 The ECEF rows are there because a per-axis reading of the `.out` file lands in
 that frame, and because the two frames' three values square-sum to the same
@@ -215,7 +227,9 @@ Reads existing `apps/rtk` output — it does not run the solver; use
 ```bash
 # what produced docs/figures/vis_rtk_*.png
 gnss rtk-plot --out-dir output/rtk/full \
-              --kalman-out output/rtk-kalman/full --lang zh
+              --kalman-out output/rtk-kalman/full \
+              --dd-cov-out output/rtk-ddcov/full \
+              --ref-xyz="-2267803.4464,5009342.4841,3220991.0095" --lang zh
 ```
 
 `--out-dir` defaults to `output/rtk` and is searched **recursively**, because

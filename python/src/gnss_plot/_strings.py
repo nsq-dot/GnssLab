@@ -204,6 +204,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_kalman": "{mode}: LSQ RMS {lrms:.3f} m  ·  Kalman RMS "
                             "{krms:.3f} m  ·  gain {gain}  ·  |d|>1 m  {n1}/{n2}",
 
+        # --- the DD-weighting comparison (figure 8-7, exercise 3) ---
+        "title_rtk_dd_cov": "The ratio test under both DD weightings, one panel "
+                            "per constellation ({rover}, {n} epochs each)",
+        "axis_rtk_ratio": "ratio test statistic Ω2/Ω1 — linear, with the "
+                          "threshold line on the bottom edge",
+        "legend_dd_indep": "double differences independent (the default)",
+        "legend_dd_cov": "double differences correlated (Q_DD)",
+        # {m1}/{m2} arrive preformatted ("522", or "-"), the convention
+        # annot_rtk_vs_gain uses, so no NaN or zero reaches a format spec.
+        # The two counts are named rather than left as "n1 / n2", which reads
+        # as a fraction of a whole; they are one count per run.
+        "annot_rtk_dd_cov": "{mode}: ratio median {m1} → {m2}  ·  above "
+                            "threshold, independent {n1} · correlated {n2}",
+
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",
         "legend_sys_bds3": "BDS-3",
@@ -443,6 +457,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "legend_kalman_float": "卡尔曼滤波（浮点解，模糊度跨历元）",
         "annot_rtk_kalman": "{mode}: 最小二乘 RMS {lrms:.3f} m  ·  卡尔曼 RMS "
                             "{krms:.3f} m  ·  提升 {gain}  ·  |d|>1 m {n1}/{n2} 个",
+
+        # --- 双差加权对比（图 8-7，习题 3）---
+        "title_rtk_dd_cov": "两种双差加权下的 ratio 检验，每个星座一个面板"
+                            "（{rover}，各 {n} 个历元）",
+        "axis_rtk_ratio": "ratio 检验统计量 Ω2/Ω1 —— 线性，阈值线贴在底边",
+        "legend_dd_indep": "双差按独立加权（默认）",
+        "legend_dd_cov": "双差按相关加权（Q_DD）",
+        "annot_rtk_dd_cov": "{mode}: ratio 中位数 {m1} → {m2}  ·  过阈值："
+                            "独立 {n1} · 相关 {n2} 个历元",
 
         "legend_sys_gps": "GPS",
         "legend_sys_bds2": "BDS-2",

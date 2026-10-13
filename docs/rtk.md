@@ -15,11 +15,13 @@
 `figures/vis_rtk_error_enu_ts.png`（ENU 三轴误差时序，图 8-2）、
 `figures/vis_rtk_accuracy_bars.png`（精度对比柱状图，图 8-3）、
 `figures/vis_rtk_float_vs_fixed_ts.png`（浮点解与固定解三维误差时序，图 8-4）、
-`figures/vis_rtk_ratio_hist.png`（ratio 检验分布，图 8-5）与
-`figures/vis_rtk_lsq_vs_kalman_ts.png`（单历元最小二乘与卡尔曼滤波的浮点解对比，图 8-6），
+`figures/vis_rtk_ratio_hist.png`（ratio 检验分布，图 8-5）、
+`figures/vis_rtk_lsq_vs_kalman_ts.png`（单历元最小二乘与卡尔曼滤波的浮点解对比，图 8-6）与
+`figures/vis_rtk_dd_cov_ratio_ts.png`（两种双差加权下的 ratio 检验，图 8-7），
 均由 `gnss rtk-plot` 生成。图 8-4、8-5 需要那批 run 带 `--fix` 跑过；图 8-6 另需要一棵
-`--estimator kalman` 的输出树，用 `--kalman-out` 指给 `rtk-plot`（两种估计器写的是同一个
-文件名，所以必须是两棵目录，见第十节的复现命令）。
+`--estimator kalman` 的输出树，用 `--kalman-out` 指给 `rtk-plot`；图 8-7 需要同一批配置
+再跑一遍 `--dd-cov`，用 `--dd-cov-out` 指过去（两种估计器、两种加权写的都是同一个文件名，
+所以只能是两棵目录，见第十节与第十一节的复现命令）。
 
 ---
 
@@ -35,9 +37,10 @@
 5. `SolverLSQ` 解双差方程组，得到坐标增量，加到流动站单点解上输出。
 
 默认没有模糊度固定，也没有跨历元约束——这正是「单历元最小二乘浮点解」的字面含义。
-两个开关各自加一层：`--fix` 在第 5 步之后接上教材 8.3.5 的模糊度固定与坐标回代
+三个开关各自加一层：`--fix` 在第 5 步之后接上教材 8.3.5 的模糊度固定与坐标回代
 （第八节）；`--estimator kalman` 把求解器换成教材 8.3.4 的卡尔曼滤波，模糊度跨历元
-传递（第十节）——**只有这一条才有跨历元约束**。
+传递（第十节）——**只有这一条才有跨历元约束**；`--dd-cov` 则在第 4 步之后把双差的
+**相关性**放回权阵（`Q_DD = C·Q_SD·Cᵀ`，习题 3，第十一节），**默认关**。
 
 四个可选的星座/频点配置（`--sys`，或 `config/rtk.ini` 的 `sys` 键）：
 
@@ -49,7 +52,7 @@
 | `bds23` | 北斗二号+三号 | 按卫星取第二频点 | `C2I` +（`C7I` 或 `C5P`） | 见第五节 |
 
 一次只能解一个**星座**：双差需要一个唯一的基准星，而跨星座（GPS+北斗）就得
-每个星座各配一颗基准星，那是另一件事（第十一节已知局限）。北斗的**两代**可以合在
+每个星座各配一颗基准星，那是另一件事（第十二节已知局限）。北斗的**两代**可以合在
 一个解里（`bds23`）——它们同属一个星座、共享一颗基准星，但第二频点不同，
 所以要**按卫星**选频点；跨代的系统差见第九节。
 
@@ -556,8 +559,8 @@ GPS 与北斗三号 100% 固定，ratio 中位数 522 与 1374。零基线上双
 SP3="data/COD21994.EPH"   # CODE 精密轨道（不含北斗）
 CLK="data/COD21994_rnx3.CLK"   # 对应的精密钟差（RINEX 3.02）
 TRUE="-2267803.4464,5009342.4841,3220991.0095"
-# 固定解（每配置约 25 秒），落到与第十二节同一棵树里
-./build/bin/rtk config/rtk.ini --sys gps  --fix --trop $SP3 $CLK --base-xyz $TRUE --out-dir output/rtk/full
+# 固定解（每配置约 25 秒），落到与第十三节同一棵树里
+./build/bin/rtk config/rtk.ini --sys gps  --fix --trop --sp3 $SP3 --clk $CLK --base-xyz $TRUE --out-dir output/rtk/full
 ./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
 ./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk/full
 
@@ -825,14 +828,115 @@ gnss rtk-plot --out-dir output/rtk/full --kalman-out output/rtk-kalman/full --la
 
 ---
 
-## 十一、尚未做的与已知局限
+## 十一、习题 3：双差观测值的相关性（`Q_DD = C·Q_SD·Cᵀ`）
+
+### 11.1 上游把这道题留在代码里
+
+`differenceSat()` 给每条双差取权时，走的是「两个单差的方差相加」：
+
+```cpp
+double varDiff = 1.0/weightCurrent + 1.0/weightDatum;
+equDataDD[ed.first].weight = 1.0/varDiff;
+```
+
+这等于假设**双差彼此独立**。但同一观测类型下的所有双差都是「非基准星减基准星」，
+**共享基准星的那一个单差**，所以两两之间存在协方差 `q_datum = 1/w_datum`。上游作者把
+这一点连同这道题一起留在了注释里：
+
+```cpp
+//
+// todo
+// 构建完整的方差协方差阵，并比较定位结果的不同
+```
+
+本节就是把那个 todo 做完，并回答它问的那句话——**比较定位结果的不同**。
+
+### 11.2 严格形式与它的结构
+
+站间差分之后 `Q_SD` 确实是对角的（两台接收机彼此独立），第 i 个单差的方差就是 `qᵢ = 1/wᵢ`。
+星间差分是线性算子 `C`（非基准星 − 基准星），于是严格形式就是本题的标题：
+
+```
+Q_DD = C · Q_SD · Cᵀ
+```
+
+它**按观测类型分块**：同一类型内 `Q = diag(q_s) + q_datum·11ᵀ`，跨类型为零（不同频点的
+单差是彼此独立的观测）。块很小（块边长 = 卫星数 ≤ 8），直接求逆即可。注意它的**对角线
+恰好等于**原来那条「方差相加」的权——补上的只有非对角项。
+
+实现上只加了一处状态：`EquSys::obsCov`。**空矩阵 = 各观测独立 = 本仓库原有的路径**，
+所以每一个逐字节锚点都没有动，`--dd-cov` **默认关**。两个解算器（`SolverLSQ`、
+`SolverKalman`）各加一行：`obsCov` 非空时用它求逆当权阵。**`fixSolution` 与 LAMBDA
+一行都没改**——它们本来就在吃完整的 `Q_N`，相关性自己就传下去了。
+
+### 11.3 结果：影响在 5–12%，一个判定都没翻
+
+章节的零基线（7934 历元、与第四到十节同一套 `--trop --base-xyz` 配置），同样的两棵树，
+只是其中一棵多一个 `--dd-cov`，对**真位置**衡量：
+
+| 星座 | 浮点 3D-RMS 独立 → 相关 | ratio 中位数 | 过阈值历元 | 固定率 | 固定 3D-RMS | SPP 3D-RMS（对照） |
+|---|---|---|---|---|---|---|
+| GPS | 0.1774 → **0.1876** m | 509.8 → 451 | 7934 → 7934 | 100.0% → 100.0% | 0.0180 → 0.0180 m | 2.844 m（不动） |
+| 北斗二号 | 1.1264 → **1.1912** m | 102.4 → 92 | 6511 → 6511 | 82.1% → 82.1% | 0.0304 → 0.0300 m | 13.502 m（不动） |
+| 北斗三号 | 0.0791 → **0.0725** m | 1286.6 → 1336 | 7934 → 7934 | 100.0% → 100.0% | 0.0114 → 0.0113 m | 3.124 m（不动） |
+
+四点读法：
+
+1. **SPP 那一列一个数字都没变**——它是差分之前算出来的，与双差怎么加权无关。这是一个
+   干净的对照组：它没动，说明变的确实是差分之后那一步，而不是别的东西。
+2. **浮点解动 5–8%，方向还不一致**（GPS 与北斗二号略差、北斗三号略好）。理论预期的量级是
+   `~1/n`（n = 6–8 颗星），实测正是这个量级。
+3. **ratio 中位数动 5–12%**，这是相关性最直接的落点：LAMBDA 吃的就是模糊度协方差 `Q_N`。
+4. **固定判定一个都没翻**：三个星座的固定率一字不变，固定解 RMS（0.0180→0.0180、
+   0.0304→0.0300、0.0114→0.0113 m）与「已接受的最坏误差」（0.0390→0.0399、0.0819→0.0814、
+   0.0193→0.0186 m）也都只动毫米。原因是每个历元的 ratio 都在阈值 3.0 之上**两三个数量级**
+   ——余量太大，5–12% 摇不动它。
+
+所以这道题的答案是**负面的、但不是空的**：在这个数据集上，"把双差当独立"这个简化的代价
+是 5–12% 的浮点精度与 ratio 幅度，**而不是任何一次错误的固定**。理论说这一条对**固定解**
+的影响应该比对浮点解更大（LAMBDA 吃的就是 `Q_N`），实测里之所以看不出来，正是因为
+ratio 的余量太大——**结论不能外推到低仰角、短弧段或可见星少的场景**：那里 `n` 小、
+`q_datum` 占比大，`1/n` 的效应会跟着变大。
+
+![两种双差加权下的 ratio 检验](figures/vis_rtk_dd_cov_ratio_ts.png)
+
+**图 8-7**　灰 = 双差按独立加权（默认），红 = 按相关加权（`Q_DD`）；纵轴是 ratio 检验
+统计量 `Ω2/Ω1`（教材式 (8.61) 的 Ratio，次优解与最优解的残差平方和之比），**线性**、
+每面板独立标度；虚线是阈值 3.0——ratio 本身在几百到几千的量级，所以它与底边重合，
+**读阈值要看面板注记里那个过阈值历元数，不是看那条线**。两条线几乎处处重叠，**这个
+重叠本身就是结论**：红画在灰之上、细一圈，否则灰线会被完全盖住。ratio 为 0 表示"没有
+整数候选"，图上留空隙而不是画成 0。
+
+### 11.4 复现
+
+```bash
+# 与第十三节同一批配置，只多一个 --dd-cov，落到兄弟目录
+./build/bin/rtk config/rtk.ini --sys gps  --fix --trop --sp3 $SP3 --clk $CLK --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+
+# 图 8-7：把两棵树一起交给 rtk-plot（哪边是相关加权由 manifest 的 ddCov 决定，不靠参数顺序）
+gnss rtk-plot --out-dir output/rtk/full --dd-cov-out output/rtk-ddcov/full --ref-xyz="$TRUE" --lang zh
+
+# 看一个历元的 Q_DD（示例程序，不需要数据）
+./build/bin/diff_station --dd-cov
+```
+
+**测试**：`python tests/test_rtk_equations.py` 用手算算例钉住矩阵（3 星 2 频点、权重
+0.25/0.5/1 → `Q_DD = [[8,0,5,0],[0,8,0,5],[5,0,7,0],[0,5,0,7]]`），并断言**对角线与不开
+开关时逐位相同**；`tests/test_rtk_plot.py` 钉住配对（哪边是相关的那边从 manifest 读）
+与图 8-7 的确定性。
+
+---
+
+## 十二、尚未做的与已知局限
 
 **没做**（下一批）：
 
-- **习题 3（双差模糊度协方差对精度的影响）**。当前实现**忽略了双差观测值的相关性**，
-  权重按 `1/(1/w_rover + 1/w_base)` 逐条独立取（见 `differenceStation`）。
-  严格做法是 `Q_DD = C·Q_SD·Cᵀ` 再取逆，这正是习题 3 要对比的东西。
-  注意这一条对**固定解**的影响比对浮点解更大：LAMBDA 吃的就是 Q_N。
+- **GPS + 北斗的跨星座混解**。`differenceSat` 的基准星是**全局唯一**的，而混解要按星座
+  各选一颗——这是第四节开头那句"一次只能解一个星座"背后的实际缺口。
+- **北斗精密产品**。手上的 CODE 产品不含北斗，所以北斗那两列的轨道与钟差仍是广播的
+  （见第四节末）。
 
 **已知局限**：
 
@@ -865,7 +969,7 @@ gnss rtk-plot --out-dir output/rtk/full --kalman-out output/rtk-kalman/full --la
 
 ---
 
-## 十二、复现方法
+## 十三、复现方法
 
 ```bash
 SP3="data/COD21994.EPH"   # CODE 精密轨道（不含北斗）
@@ -898,8 +1002,11 @@ python tests/test_rtk_float_regression.py    # 需要 data/Zero-baseline/（未�
 python tests/test_rtk_equations.py           # 不需要数据，CI 可跑
 python tests/test_rtk_plot.py                # 出图那条路，不需要数据
 
-# 出图与数字表（本文六张图即由这一行生成，图片与文档同为中文）
-gnss rtk-plot --out-dir output/rtk/full --kalman-out output/rtk-kalman/full --lang zh
+# 树 3：习题 3 的相关加权（第十一节），同样必须是自己的兄弟目录
+./build/bin/rtk config/rtk.ini --sys gps  --fix --trop --sp3 $SP3 --clk $CLK --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+
 ```
 
 示例程序（不需要数据，交互式）：

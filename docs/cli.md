@@ -315,7 +315,7 @@ bare, because they read their input paths from a config file:
 | `read-rinex` | `config/bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `system-bias` | `config/bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `cs-detect-mw`, `cs-detect-gf` | `config/cs.ini` | `--obs` `--out-dir` `--stop` `--mode` `--threshold` `--window` `--delta-t-max` `--verbose` |
-| `rtk` | `config/rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--dump-orbit-types` `--verbose` |
+| `rtk` | `config/rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--sigma-factor-gps` `--sigma-factor-bd2` `--sigma-factor-bd3` `--sigma-factor-geo` `--sigma-factor-igso` `--sigma-factor-meo` `--dump-orbit-types` `--verbose` |
 
 `rtk --sys gpsbds` is the mixed GPS + BeiDou mode. Its two quota options
 (`--bds-max-sats`, `--bds-orbit-ratio`) and `--dump-orbit-types` are described

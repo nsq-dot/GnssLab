@@ -13,6 +13,25 @@ Releases get their own section from here on.
 
 ### Added
 
+- **Per-system and per-orbital-family code weighting for the RTK solution.**
+  Six multipliers (`codeSigmaFactorGPS/BD2/BD3` and `...GEO/IGSO/MEO`, also
+  available as `--sigma-factor-*`) scale the linearizer's 0.3 m code sigma:
+  `effective sigma = 0.3 m * systemFactor * orbitFactor`. They are applied to
+  the linearized equations before the station and satellite differences, so
+  they reach the double-difference weights (including `--dd-cov`) but leave the
+  `spp:` column alone. All default to 1.0, so every existing output is
+  byte-identical; the manifest records the six values under `codeSigmaFactors`.
+
+  On the chapter's zero baseline the mixed float 3-D RMS fell from 0.0866 m to
+  0.0621 m with `GPS=2.0, BD3=0.7, MEO=0.7` (fixed solution unchanged at
+  0.0120 m, because phase weighting is untouched), and the weighted mixed
+  Kalman went from 0.0152 to 0.0143 m. The effect holds on every third of the
+  run: leave-one-third-out validation reduced the held-out segment by 19-22%
+  against the default mixed solution. Downweighting BDS-2 made the float worse
+  (0.0934 m at factor 2), which is the same lesson as the quota ablation - it
+  carries geometry and redundancy. The measured factors are dataset-specific;
+  `docs/rtk.md` §12.4 has the full tables and the cross-validation.
+
 - **Mixed GPS + BeiDou RTK (`--sys gpsbds`), with one reference satellite per
   constellation and a BeiDou orbital-family quota.** The old `differenceSat()`
   anchored every double difference on a single global reference satellite and

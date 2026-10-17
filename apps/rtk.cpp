@@ -82,6 +82,8 @@
  *   --sys <mode>          gps | bds2 | bds3 | bds23 | gpsbds (default: gps)
  *   --bds-max-sats <n>    Mixed solution: cap on BeiDou satellites (0 = all)
  *   --bds-orbit-ratio <g,i,m>  GEO:IGSO:MEO relative slots (default 1,1,1)
+ *   --sigma-factor-gps|bd2|bd3 <x>   Code sigma multiplier per system
+ *   --sigma-factor-geo|igso|meo <x>  Code sigma multiplier per BDS orbit
  *   --dump-orbit-types    Print the BeiDou orbital classification and exit
  *   --trop                Apply the troposphere-delay correction (off by default)
  *   --bds-tgd             Apply the BeiDou TGD correction (bds* only, off by default)
@@ -157,6 +159,15 @@ void printUsage(const char *prog) {
          "  --bds-orbit-ratio <g,i,m>\n"
          "                     Relative GEO:IGSO:MEO slots when the cap binds\n"
          "                     (default 1,1,1; 0 excludes a family)\n"
+         "  --sigma-factor-gps <x>   Code sigma multiplier for GPS (default 1)\n"
+         "  --sigma-factor-bd2 <x>   Code sigma multiplier for BDS-2\n"
+         "  --sigma-factor-bd3 <x>   Code sigma multiplier for BDS-3\n"
+         "  --sigma-factor-geo <x>   Extra multiplier for BeiDou GEO\n"
+         "  --sigma-factor-igso <x>  Extra multiplier for BeiDou IGSO\n"
+         "  --sigma-factor-meo <x>   Extra multiplier for BeiDou MEO\n"
+         "                     >1 downweights (larger sigma), <1 upweights.\n"
+         "                     Applied to the double-difference code weights;\n"
+         "                     the spp: column is left at the built-in sigma.\n"
          "  --dump-orbit-types Print each BeiDou satellite's orbit family and exit\n"
          "  --isb              Estimate the receiver inter-system bias between\n"
          "                     BDS-2 and BDS-3 (only meaningful for --sys bds23)\n"
@@ -464,6 +475,54 @@ std::vector<SatID> selectBdsByOrbit(const set<SatID> &sdSats,
     return selected;
 }
 
+/// Code sigma multipliers, one per system and one per BeiDou orbital family.
+struct CodeSigmaFactors {
+    double gps = 1.0;
+    double bd2 = 1.0;
+    double bd3 = 1.0;
+    double geo = 1.0;
+    double igso = 1.0;
+    double meo = 1.0;
+};
+
+/// Effective code sigma multiplier for one satellite.
+double codeSigmaFactorFor(const SatID &sat, const CodeSigmaFactors &f,
+                          const RinexNavStore &navStore) {
+    if (sat.system == "G") return f.gps;
+    if (sat.system != "C") return 1.0;
+    double factor = (bdsGeneration(sat) == 2) ? f.bd2 : f.bd3;
+    switch (navStore.bdsOrbitType(sat)) {
+        case BdsOrbitType::GEO:  factor *= f.geo;  break;
+        case BdsOrbitType::IGSO: factor *= f.igso; break;
+        case BdsOrbitType::MEO:  factor *= f.meo;  break;
+        default: break;
+    }
+    return factor;
+}
+
+/**
+ * Scale the CODE weights of a linearized system by the system/family factors.
+ *
+ * The linearizer has already applied its 0.3 m code sigma and the elevation
+ * weighting, so this is a pure multiplier: weight /= factor^2. Phase equations
+ * are deliberately untouched - the carrier phase is at the millimetre level for
+ * every constellation here, and the lever we are pulling is the code noise that
+ * dominates the float solution.
+ *
+ * Called on both the rover and base systems before station differencing, so the
+ * factors survive into the double-difference weights (and into --dd-cov).
+ */
+void applyCodeSigmaFactors(EquSys &equSys, const CodeSigmaFactors &f,
+                           const RinexNavStore &navStore) {
+    for (auto &oe : equSys.obsEquData) {
+        const string &type = oe.first.obsType;
+        if (type.empty() || type[0] != 'C') continue;
+        double factor = codeSigmaFactorFor(oe.first.sat, f, navStore);
+        if (factor != 1.0)
+            oe.second.weight /= factor * factor;
+    }
+}
+
 /// Erase every satellite not in `keep` from a station-difference system.
 void keepOnlySats(EquSys &equSys, const set<SatID> &keep) {
     for (auto it = equSys.obsEquData.begin(); it != equSys.obsEquData.end(); ) {
@@ -563,6 +622,10 @@ int main(int argc, char *argv[]) {
     int optBdsMaxSats = -1;
     string optBdsOrbitRatio;
     bool optDumpOrbitTypes = false;
+    // Code sigma multipliers; 0 means "not given", because a valid factor is
+    // strictly positive.
+    double optSigmaGPS = 0.0, optSigmaBD2 = 0.0, optSigmaBD3 = 0.0;
+    double optSigmaGEO = 0.0, optSigmaIGSO = 0.0, optSigmaMEO = 0.0;
 
     for (int i = 1; i < argc; ++i) {
         string a = argv[i];
@@ -573,6 +636,18 @@ int main(int argc, char *argv[]) {
                 exit(2);
             }
             return argv[++i];
+        };
+        auto needPositive = [&](const char *name) -> double {
+            string v = needValue(name);
+            try {
+                double x = std::stod(v);
+                if (!(x > 0.0) || !std::isfinite(x)) throw std::invalid_argument(v);
+                return x;
+            } catch (const std::exception &) {
+                cerr << "Error: " << name << " wants a positive number, got '"
+                     << v << "'\n";
+                exit(2);
+            }
         };
 
         if (a == "-h" || a == "--help") { printUsage(argv[0]); return 0; }
@@ -606,6 +681,12 @@ int main(int argc, char *argv[]) {
         }
         else if (a == "--bds-orbit-ratio") optBdsOrbitRatio = needValue("--bds-orbit-ratio");
         else if (a == "--dump-orbit-types") optDumpOrbitTypes = true;
+        else if (a == "--sigma-factor-gps")  optSigmaGPS  = needPositive("--sigma-factor-gps");
+        else if (a == "--sigma-factor-bd2")  optSigmaBD2  = needPositive("--sigma-factor-bd2");
+        else if (a == "--sigma-factor-bd3")  optSigmaBD3  = needPositive("--sigma-factor-bd3");
+        else if (a == "--sigma-factor-geo")  optSigmaGEO  = needPositive("--sigma-factor-geo");
+        else if (a == "--sigma-factor-igso") optSigmaIGSO = needPositive("--sigma-factor-igso");
+        else if (a == "--sigma-factor-meo")  optSigmaMEO  = needPositive("--sigma-factor-meo");
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
             cerr << "Error: unknown option '" << a << "'\n";
@@ -663,6 +744,12 @@ int main(int argc, char *argv[]) {
     if (optBdsTgd)           cfg.enableBDSTGD = true;
     if (optBdsMaxSats >= 0)  cfg.bdsMaxSats = optBdsMaxSats;
     if (!optBdsOrbitRatio.empty()) cfg.bdsOrbitRatio = optBdsOrbitRatio;
+    if (optSigmaGPS  > 0) cfg.codeSigmaFactorGPS  = optSigmaGPS;
+    if (optSigmaBD2  > 0) cfg.codeSigmaFactorBD2  = optSigmaBD2;
+    if (optSigmaBD3  > 0) cfg.codeSigmaFactorBD3  = optSigmaBD3;
+    if (optSigmaGEO  > 0) cfg.codeSigmaFactorGEO  = optSigmaGEO;
+    if (optSigmaIGSO > 0) cfg.codeSigmaFactorIGSO = optSigmaIGSO;
+    if (optSigmaMEO  > 0) cfg.codeSigmaFactorMEO  = optSigmaMEO;
     if (!optEstimator.empty()) cfg.estimator = optEstimator;
     if (cfg.estimator != "lsq" && cfg.estimator != "kalman") {
         cerr << "Error: estimator must be 'lsq' or 'kalman', got '"
@@ -728,6 +815,31 @@ int main(int argc, char *argv[]) {
         cerr << "Error: bdsMaxSats must be >= 0 (0 means no cap)\n";
         return 2;
     }
+
+    // A zero or negative sigma multiplier would divide the weight by zero or
+    // flip its sign. Reject it before any file is opened.
+    {
+        struct NamedFactor { const char *name; double value; };
+        const NamedFactor factors[] = {
+            {"codeSigmaFactorGPS",  cfg.codeSigmaFactorGPS},
+            {"codeSigmaFactorBD2",  cfg.codeSigmaFactorBD2},
+            {"codeSigmaFactorBD3",  cfg.codeSigmaFactorBD3},
+            {"codeSigmaFactorGEO",  cfg.codeSigmaFactorGEO},
+            {"codeSigmaFactorIGSO", cfg.codeSigmaFactorIGSO},
+            {"codeSigmaFactorMEO",  cfg.codeSigmaFactorMEO},
+        };
+        for (const NamedFactor &f : factors) {
+            if (!(f.value > 0.0) || !std::isfinite(f.value)) {
+                cerr << "Error: " << f.name << " must be a positive number (got "
+                     << f.value << ")\n";
+                return 2;
+            }
+        }
+    }
+    const CodeSigmaFactors sigmaFactors{
+        cfg.codeSigmaFactorGPS, cfg.codeSigmaFactorBD2, cfg.codeSigmaFactorBD3,
+        cfg.codeSigmaFactorGEO, cfg.codeSigmaFactorIGSO, cfg.codeSigmaFactorMEO};
+
     const bool mixedSystems = mode.codePairsBySystem.size() > 1;
     if (cfg.bdsMaxSats > 0 && !mixedSystems) {
         cerr << "Warning: bdsMaxSats only applies to gpsbds; ignored for '"
@@ -757,6 +869,12 @@ int main(int argc, char *argv[]) {
              << (cfg.estimateISB ? "yes (BDS-3 relative to BDS-2)" : "no") << "\n";
         cout << "trop      : " << (cfg.enableTrop ? "yes" : "no") << "\n";
         cout << "bds-tgd   : " << (cfg.enableBDSTGD ? "yes" : "no") << "\n";
+        cout << "sigma     : GPS " << sigmaFactors.gps
+             << "  BD2 " << sigmaFactors.bd2
+             << "  BD3 " << sigmaFactors.bd3
+             << "  GEO " << sigmaFactors.geo
+             << "  IGSO " << sigmaFactors.igso
+             << "  MEO " << sigmaFactors.meo << "\n";
     }
 
     if (!ensureDirectory(outDir)) {
@@ -1088,6 +1206,10 @@ int main(int argc, char *argv[]) {
         }
 
         EquSys equSysRover = sppRover.getEquSys();
+        // Per-system / per-orbit code weighting. Applied to the copy the
+        // double-difference pipeline uses; the single-point solve above has
+        // already run at the built-in sigma.
+        applyCodeSigmaFactors(equSysRover, sigmaFactors, navStore);
 
         // --- base: synchronised single-point positioning ---------------------
         ObsData baseData;
@@ -1130,6 +1252,7 @@ int main(int argc, char *argv[]) {
         }
 
         EquSys equSysBase = sppBase.getEquSys();
+        applyCodeSigmaFactors(equSysBase, sigmaFactors, navStore);
 
         // --- cycle-slip flags (--dump-cs) ------------------------------------
         // Detected AFTER both single-point solves. That order is the lecture
@@ -1544,6 +1667,12 @@ int main(int argc, char *argv[]) {
         mf << "  \"bdsOrbitRatio\": [" << bdsOrbitRatio[0] << ", "
            << bdsOrbitRatio[1] << ", " << bdsOrbitRatio[2] << "],\n";
         mf << "  \"bdsMaxSats\": " << cfg.bdsMaxSats << ",\n";
+        mf << "  \"codeSigmaFactors\": {\"GPS\": " << sigmaFactors.gps
+           << ", \"BD2\": " << sigmaFactors.bd2
+           << ", \"BD3\": " << sigmaFactors.bd3
+           << ", \"GEO\": " << sigmaFactors.geo
+           << ", \"IGSO\": " << sigmaFactors.igso
+           << ", \"MEO\": " << sigmaFactors.meo << "},\n";
         mf << "  \"rtkFloatOut\": \"" << jsonEscape(solFile) << "\",\n";
         if (wantCsFlags) {
             if (optDumpCs) {

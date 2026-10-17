@@ -56,6 +56,8 @@ Most keys are documented inline in `rtk.ini` itself. Two are new with the
 |---|---|---|---|
 | `bdsOrbitRatio` | list of 3 ints | `1,1,1` | Relative GEO : IGSO : MEO slots. A zero excludes that family even with no cap; otherwise the ratio allocates slots when `bdsMaxSats` caps the total. `1,1,1` with no cap keeps every satellite |
 | `bdsMaxSats` | int | `0` | Total BeiDou satellites in `gpsbds`. `0` = no cap. A positive value allocates slots by `bdsOrbitRatio`; a family that cannot fill its share gives the rest to the others |
+| `codeSigmaFactorGPS`, `...BD2`, `...BD3` | double | `1.0` | Multiplier on the code sigma for that system: `effective sigma = 0.3 m * factor`. `>1` downweights, `<1` upweights. Applied to the double-difference code weights, not to the `spp:` column |
+| `codeSigmaFactorGEO`, `...IGSO`, `...MEO` | double | `1.0` | Extra multiplier for BeiDou satellites of that orbital family, on top of the generation factor. Ignored for GPS |
 
 The selection runs on the satellites that survived station differencing, ranks
 within a family by elevation, and never caps the GPS side. `docs/rtk.md` §12 has
@@ -147,7 +149,7 @@ count rather than a stop epoch, so it has no `--stop`.
 | `system_bias`, `read_rinex` | `bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `bds_eph` | `eph.ini` | `--nav` `--sp3` `--sat` `--epoch` `--verbose` |
 | `bds_gps_diff` | `eph.ini` | `--nav` `--sp3` `--out-dir` `--sats` `--start` `--epochs` `--interval` `--verbose` |
-| `rtk` | `rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--dump-orbit-types` `--verbose` |
+| `rtk` | `rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--sigma-factor-gps` `--sigma-factor-bd2` `--sigma-factor-bd3` `--sigma-factor-geo` `--sigma-factor-igso` `--sigma-factor-meo` `--dump-orbit-types` `--verbose` |
 
 Every one of them also accepts `-h` / `--help`.
 

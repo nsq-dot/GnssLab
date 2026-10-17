@@ -268,6 +268,14 @@ RTKConfigData RTKConfigData::defaults() {
     c.bdsOrbitRatio = "1,1,1";
     c.bdsMaxSats = 0;
 
+    // 1.0 is the linearizer's own sigma, so these are inert unless set.
+    c.codeSigmaFactorGPS = 1.0;
+    c.codeSigmaFactorBD2 = 1.0;
+    c.codeSigmaFactorBD3 = 1.0;
+    c.codeSigmaFactorGEO = 1.0;
+    c.codeSigmaFactorIGSO = 1.0;
+    c.codeSigmaFactorMEO = 1.0;
+
     return c;
 }
 
@@ -296,6 +304,19 @@ RTKConfigData RTKConfigData::fromIni(const std::string &path) {
 
     c.bdsOrbitRatio = reader.getValueAsStringOr("bdsOrbitRatio", c.bdsOrbitRatio);
     c.bdsMaxSats = reader.getValueAsIntOr("bdsMaxSats", c.bdsMaxSats);
+
+    c.codeSigmaFactorGPS =
+        reader.getValueAsDoubleOr("codeSigmaFactorGPS", c.codeSigmaFactorGPS);
+    c.codeSigmaFactorBD2 =
+        reader.getValueAsDoubleOr("codeSigmaFactorBD2", c.codeSigmaFactorBD2);
+    c.codeSigmaFactorBD3 =
+        reader.getValueAsDoubleOr("codeSigmaFactorBD3", c.codeSigmaFactorBD3);
+    c.codeSigmaFactorGEO =
+        reader.getValueAsDoubleOr("codeSigmaFactorGEO", c.codeSigmaFactorGEO);
+    c.codeSigmaFactorIGSO =
+        reader.getValueAsDoubleOr("codeSigmaFactorIGSO", c.codeSigmaFactorIGSO);
+    c.codeSigmaFactorMEO =
+        reader.getValueAsDoubleOr("codeSigmaFactorMEO", c.codeSigmaFactorMEO);
 
     return c;
 }

@@ -334,6 +334,34 @@ struct RTKConfigData {
      */
     int bdsMaxSats;
 
+    // ---- code observation weighting ----------------------------------------
+    /**
+     * Multipliers on the code sigma, one per constellation and one per BeiDou
+     * orbital family. The linearizer's built-in code sigma is 0.3 m and its
+     * phase sigma 0.003 m; these factors scale the CODE sigma only:
+     *
+     *     effective sigma = 0.3 m * systemFactor * orbitFactor
+     *     weight          = 1 / effective sigma^2
+     *
+     * so a factor above 1 DOWNWEIGHTS the family (a larger sigma means less
+     * trust), and one below 1 upweights it. The orbit factor multiplies the
+     * generation factor for BDS (GEO / IGSO / MEO); it is ignored for GPS.
+     *
+     * All default to 1.0, which leaves every existing byte anchor untouched.
+     * The factors are applied to the linearized equations BEFORE the station
+     * and satellite differences, so they flow through the double-difference
+     * weights (and through --dd-cov). They do NOT change the `spp:` column:
+     * the single-point solve has already run when the factors are applied.
+     * That is deliberate - the SPP column is a different product, and moving
+     * it would make the chapter's tables incomparable for no gain here.
+     */
+    double codeSigmaFactorGPS;
+    double codeSigmaFactorBD2;
+    double codeSigmaFactorBD3;
+    double codeSigmaFactorGEO;
+    double codeSigmaFactorIGSO;
+    double codeSigmaFactorMEO;
+
     /// Values used when no config file is supplied or a key is absent.
     static RTKConfigData defaults();
 

@@ -133,8 +133,8 @@ See [docs/cli.md](docs/cli.md) and [`config/README.md`](config/README.md).
   a Kalman filter carrying ambiguities across epochs, cycle-slip reset, and
   pre-fit residual diagnostics
 - Mixed solutions: BDS-2 + BDS-3, and GPS + BeiDou (`--sys gpsbds`) with one
-  reference satellite per constellation and a GEO/IGSO/MEO quota for the
-  BeiDou satellites
+  reference satellite per constellation, a GEO/IGSO/MEO quota for the BeiDou
+  satellites, and per-system / per-family code sigma factors
 - Configuration files, a command line, and a unified `gnss` entry point
 
 **Not implemented** — stated so you do not have to infer it from the source
@@ -146,9 +146,9 @@ See [docs/cli.md](docs/cli.md) and [`config/README.md`](config/README.md).
 - **No Galileo or GLONASS.**
 - **No cycle-slip repair**, only detection (the filter resets a flagged
   ambiguity, which is not the same thing).
-- **No per-system or per-orbital-family weighting yet.** Every system shares one
-  code sigma, which is why the mixed solution's float RMS can be worse than
-  BDS-only on the zero baseline even though more satellites take part.
+- **No per-system weighting in the SPP program, and no phase weighting.** The
+  RTK solver has per-system / per-orbital-family code sigma factors; their
+  phase sigma is still uniform, and `spp_if` still carries one code sigma.
 - **No BeiDou precise products yet.** The MGEX orbit and clock load, but the
   BDS clock uses a different bias datum (DCB); broadcast remains the
   self-consistent choice until an OSB reader exists.

@@ -186,6 +186,37 @@ def main() -> int:
         out_c, OBS + "_gpsbds_rtk_float.out")) == 25,
         "--dd-cov mixed float solution is finite for all 25 epochs")
 
+    print("Code weighting: factors reach the manifest and 1.0 changes nothing")
+    out_w = os.path.join(base, "weighted")
+    run(exe, ["--sys", "gpsbds", "--sigma-factor-gps", "2",
+              "--sigma-factor-bd3", "0.7", "--sigma-factor-meo", "0.7",
+              "--out-dir", out_w] + common)
+    w_manifest = read_manifest(os.path.join(out_w, OBS + "_gpsbds_manifest.json"))
+    factors = w_manifest.get("codeSigmaFactors", {})
+    check(factors.get("GPS") == 2.0 and factors.get("BD3") == 0.7
+          and factors.get("MEO") == 0.7,
+          f"manifest records the code sigma factors (got {factors})")
+    check(finite_solution(os.path.join(
+        out_w, OBS + "_gpsbds_rtk_float.out")) == 25,
+        "weighted float solution is finite for all 25 epochs")
+
+    # A factor of 1.0 is the built-in sigma; it must be a no-op to the byte.
+    out_one = os.path.join(base, "weight_one")
+    run(exe, ["--sys", "gpsbds", "--sigma-factor-gps", "1",
+              "--sigma-factor-bd2", "1", "--sigma-factor-bd3", "1",
+              "--sigma-factor-geo", "1", "--sigma-factor-igso", "1",
+              "--sigma-factor-meo", "1", "--out-dir", out_one] + common)
+    for suffix in ("_rtk_float.out", "_rtk_fixed.out"):
+        a = os.path.join(out_one, OBS + "_gpsbds" + suffix)
+        b = os.path.join(out_mix, OBS + "_gpsbds" + suffix)
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            check(fa.read() == fb.read(),
+                  f"all-1.0 factors reproduce the default {suffix}")
+
+    print("Malformed weight")
+    run(exe, ["--sys", "gpsbds", "--sigma-factor-gps", "0",
+              "--out-dir", os.path.join(base, "badw")], expect=2)
+
     print("Kalman: one ambiguity constraint per reference")
     out_k = os.path.join(base, "kalman")
     run(exe, ["--sys", "gpsbds", "--estimator", "kalman", "--dump-cs",

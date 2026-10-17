@@ -4,13 +4,11 @@
 
 Stated plainly, because a reader should not have to infer it from the source:
 
-- **The mixed GPS + BeiDou solution has one code sigma for every system.** The
-  `gpsbds` mode exists and carries one reference satellite per constellation
-  (see [rtk.md](rtk.md) §12), but all systems still share the same scalar
-  sigma. On the chapter's zero baseline that lets the noisier GPS code pull the
-  float solution back: mixed 0.0866 m against BDS-only 0.0730 m. Per-system (and
-  per-orbital-family) weighting is what would let the mixed solution keep the
-  best of both; `SPPIFCode` has to carry a sigma per constellation first.
+- **The SPP program still carries one scalar sigma.** The RTK side now has
+  per-system and per-orbital-family code factors (`codeSigmaFactor*`, see
+  [rtk.md](rtk.md) §12.4), but `SPPIFCode` has not been extended: the reserved
+  `noiseBD2Code` / `noiseBD3Code` keys remain inert there. The RTK factors also
+  apply to the code only; the carrier-phase sigma is still uniform.
 - **The double differences are weighted as uncorrelated by default.** `differenceSat`
   combines the two single-difference weights as `1/(1/w_rover + 1/w_base)`, one
   equation at a time; the strict form, behind `--dd-cov`, is `Q_DD = C·Q_SD·Cᵀ`
@@ -164,15 +162,13 @@ silently covering only the satellites the sample happens to carry.
 
 Roughly in order of value per unit of effort:
 
-1. **Per-constellation sigma.** Extend `SPPIFCode` to hold one sigma per
-   system, which activates the reserved config keys and is the prerequisite for
-   meaningful GPS/BeiDou weighting. Elevation weighting already exists
-   (`sin²(el)` below 30°), so what is missing is the system/family dimension.
-2. **Per-orbital-family sigma for BeiDou.** Once the solver carries more than
-   one sigma, GEO / IGSO / MEO can be weighted separately. The mixed-solution
-   ablation in `rtk.md` §12 shows that the family quota alone cannot beat using
-   every satellite, because a quota throws information away; weighting keeps
-   the satellites and discounts the unreliable ones.
+1. **Per-constellation sigma in the SPP program.** Extend `SPPIFCode` to hold
+   one sigma per system, which activates the reserved config keys. Elevation
+   weighting and the RTK code factors already exist, so this is the SPP half.
+2. **Phase weighting.** The RTK code factors in `rtk.md` §12.4 move the float
+   solution but leave the fixed solution untouched, because the phase sigma is
+   still uniform. A per-system / per-family phase sigma (or a better integer
+   model) is what could improve the fixed column.
 3. **Wire up the Kalman filter in the SPP program.** `src/SolverKalman.*` and
    `src/KalmanFilter.*` are in the library and the RTK program already uses
    them (`--estimator kalman`); `spp_if` still parses `estimator = 2` and

@@ -13,6 +13,32 @@ Releases get their own section from here on.
 
 ### Added
 
+- **Mixed GPS + BeiDou RTK (`--sys gpsbds`), with one reference satellite per
+  constellation and a BeiDou orbital-family quota.** The old `differenceSat()`
+  anchored every double difference on a single global reference satellite and
+  looked its equations up by `(system, obsType)`, so a GPS reference silently
+  dropped every BeiDou satellite. The mixed mode carries a `constellation ->
+  satellite` map, picks the highest-elevation survivor per constellation, and
+  adds one ambiguity constraint per reference on the Kalman path. No
+  GPS/BeiDou inter-system bias is needed: receiver clocks are already estimated
+  per system and the two blocks are tied only through the coordinates. BeiDou
+  satellites are classified GEO / IGSO / MEO from the broadcast elements
+  (`sqrt_A` plus `i0`, with the PRN assignment as a fallback - C59/C60 are GEO
+  despite their PRN), and `bdsOrbitRatio` / `bdsMaxSats` select how many of each
+  family take part; within a family the highest elevations win. `--dump-orbit-types`
+  prints the classification.
+
+  Measured on the chapter's zero baseline (7934 epochs, broadcast for both
+  systems, `--fix --trop --bds-tgd --base-xyz`): the no-cap mixed solution is
+  0.0866 m float / 0.0120 m fixed against GPS-only 0.1752 / 0.0224, and its
+  Kalman float is 0.0152 m. It does **not** beat the BDS-only `bds23` float
+  (0.0730 m), because every system still shares one code sigma and the noisier
+  GPS code pulls the float back; per-system weighting is the next step. The
+  family ablation is in `docs/rtk.md` §12: MEO is indispensable (without it the
+  float collapses to 0.2228 m and the fix rate to 82.2%), GEO is neutral here,
+  and a satellite cap costs more than the ratio gains - the measured "right
+  ratio" on this dataset is no cap, all three families.
+
 - **Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: figures 8-1, 8-4 and 8-6, each
   redrawn one direction at a time.** The chapter's parent figures fold the three
   components of an ENU error into one magnitude or one shared axis; the nine
@@ -166,6 +192,16 @@ Releases get their own section from here on.
 
 ### Changed
 
+- **The RTK diagnostics carry the mixed-solution state.** Six columns are
+  appended to `_rtk_diag.csv`: `datumSats` (every reference satellite, e.g.
+  `C24;G01`), the candidate counts `bdsCand{GEO,IGSO,MEO}` and the selected
+  counts `bdsSel{GEO,IGSO,MEO}`. The legacy `datumSat` column is unchanged and
+  reports the GPS reference when there is one. Single-system runs write empty /
+  zero in the new columns and their existing columns, `.out` files and byte
+  anchors are untouched. The manifest gains `systems`, `codePairsBySystem`,
+  `bdsOrbitRatio` and `bdsMaxSats`. `docs/rtk.md` gains §12 for the mixed mode
+  and the later sections renumber accordingly.
+
 - **Figure 8-1 stops drawing at sod 31200, 1378 epochs before its run ends.**
   The tail is dropped on request, not because the data stops there: measured
   against the chapter's reference, the single-point solution degrades badly
@@ -220,7 +256,7 @@ Releases get their own section from here on.
 
 - **The console's two notes about the comparison table said the SPP offset was
   still unexplained.** It is not — it was the receivers' own header coordinate
-  all along (`rtk.md` §12) — and on the corrected runs it is 0.01 / 9.4 / 1.7 m
+  all along (`rtk.md` §13) — and on the corrected runs it is 0.01 / 9.4 / 1.7 m
   rather than 19–28 m. Both notes, in both languages, now say what the document
   says: the RTK column is tied to the reference by construction, the SPP column
   is not, and the ratio inherits that asymmetry.

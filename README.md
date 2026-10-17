@@ -126,20 +126,32 @@ See [docs/cli.md](docs/cli.md) and [`config/README.md`](config/README.md).
   with robust outlier rejection based on a median-absolute-deviation scale
 - Broadcast ephemeris: GPS and BeiDou, including the GEO-specific orbit rotation
 - Elevation mask, Hopfield / Saastamoinen tropospheric delay, BeiDou TGD
-- Melbourne–Wübbena cycle-slip *detection*
+- Melbourne–Wübbena and geometry-free cycle-slip *detection*
 - Systematic-error diagnostics: TGD, ionospheric and tropospheric delay
 - Broadcast-versus-precise orbit and clock comparison against SP3/CLK
+- Carrier-phase RTK: single-epoch float solution, MLAMBDA integer fixing,
+  a Kalman filter carrying ambiguities across epochs, cycle-slip reset, and
+  pre-fit residual diagnostics
+- Mixed solutions: BDS-2 + BDS-3, and GPS + BeiDou (`--sys gpsbds`) with one
+  reference satellite per constellation and a GEO/IGSO/MEO quota for the
+  BeiDou satellites
 - Configuration files, a command line, and a unified `gnss` entry point
 
 **Not implemented** — stated so you do not have to infer it from the source
 
-- **No RTK and no PPP.** Carrier-phase relative positioning is absent. The
-  chapter-8 material (`ARLambda`, `SolverKalman`, `KalmanFilter`) is in the
-  library and compiles, but no program wires it up.
-- **No Kalman filter.** `estimator = 2` parses but is ignored; the solver always
-  uses least squares.
+- **No PPP.** RTK is relative positioning; there is no precise-point-positioning
+  program. Chapter 8's RTK does use precise orbits and clocks when handed them.
+- **No Kalman filter in the SPP program.** `spp_if` parses `estimator = 2` and
+  ignores it; the RTK program has a working filter behind `--estimator kalman`.
 - **No Galileo or GLONASS.**
-- **No cycle-slip repair**, only detection.
+- **No cycle-slip repair**, only detection (the filter resets a flagged
+  ambiguity, which is not the same thing).
+- **No per-system or per-orbital-family weighting yet.** Every system shares one
+  code sigma, which is why the mixed solution's float RMS can be worse than
+  BDS-only on the zero baseline even though more satellites take part.
+- **No BeiDou precise products yet.** The MGEX orbit and clock load, but the
+  BDS clock uses a different bias datum (DCB); broadcast remains the
+  self-consistent choice until an OSB reader exists.
 
 [`docs/roadmap.md`](docs/roadmap.md) has the full list, including known issues
 and suggested next steps.

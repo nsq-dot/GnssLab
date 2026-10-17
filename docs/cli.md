@@ -315,6 +315,12 @@ bare, because they read their input paths from a config file:
 | `read-rinex` | `config/bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `system-bias` | `config/bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `cs-detect-mw`, `cs-detect-gf` | `config/cs.ini` | `--obs` `--out-dir` `--stop` `--mode` `--threshold` `--window` `--delta-t-max` `--verbose` |
+| `rtk` | `config/rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--dump-orbit-types` `--verbose` |
+
+`rtk --sys gpsbds` is the mixed GPS + BeiDou mode. Its two quota options
+(`--bds-max-sats`, `--bds-orbit-ratio`) and `--dump-orbit-types` are described
+in [rtk.md](rtk.md) §12; the existing `rtk-plot` figures still select runs by
+constellation and ignore a `gpsbds` run.
 
 Everything after the program name is passed through verbatim, so the `--` is
 optional: `gnss app cs-detect-gf --mode both --obs data/sample/...` works, and

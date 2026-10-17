@@ -47,6 +47,21 @@ the command line is not searched for.
 
 ## Keys
 
+### `rtk.ini` — mixed GPS + BeiDou
+
+Most keys are documented inline in `rtk.ini` itself. Two are new with the
+`gpsbds` mode and only apply there:
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `bdsOrbitRatio` | list of 3 ints | `1,1,1` | Relative GEO : IGSO : MEO slots. A zero excludes that family even with no cap; otherwise the ratio allocates slots when `bdsMaxSats` caps the total. `1,1,1` with no cap keeps every satellite |
+| `bdsMaxSats` | int | `0` | Total BeiDou satellites in `gpsbds`. `0` = no cap. A positive value allocates slots by `bdsOrbitRatio`; a family that cannot fill its share gives the rest to the others |
+
+The selection runs on the satellites that survived station differencing, ranks
+within a family by elevation, and never caps the GPS side. `docs/rtk.md` §12 has
+the measured ablation table; on the chapter's zero baseline the no-cap run is
+the best mixed float solution, and a cap costs more than the ratio gains.
+
 ### `spp.ini` — consumed
 
 | Key | Type | Default | Effect |
@@ -132,6 +147,7 @@ count rather than a stop epoch, so it has no `--stop`.
 | `system_bias`, `read_rinex` | `bias.ini` | `--obs` `--nav` `--out-dir` `--stop` `--verbose` |
 | `bds_eph` | `eph.ini` | `--nav` `--sp3` `--sat` `--epoch` `--verbose` |
 | `bds_gps_diff` | `eph.ini` | `--nav` `--sp3` `--out-dir` `--sats` `--start` `--epochs` `--interval` `--verbose` |
+| `rtk` | `rtk.ini` | `--obs` `--base-obs` `--nav` `--out-dir` `--stop` `--sys` `--isb` `--trop` `--bds-tgd` `--sp3` `--clk` `--smooth` `--base-xyz` `--est-trop` `--dd-cov` `--fix` `--ratio` `--estimator` `--dump-cs` `--dump-epoch` `--bds-max-sats` `--bds-orbit-ratio` `--dump-orbit-types` `--verbose` |
 
 Every one of them also accepts `-h` / `--help`.
 

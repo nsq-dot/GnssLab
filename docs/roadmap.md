@@ -4,10 +4,13 @@
 
 Stated plainly, because a reader should not have to infer it from the source:
 
-- **The RTK program solves one constellation at a time.** GPS, BDS-2, BDS-3, or
-  BDS-2 + BDS-3 together - but not GPS plus BeiDou, because a double difference
-  needs a single reference satellite and a mixed system has one per constellation.
-  See the last section of [rtk.md](rtk.md).
+- **The mixed GPS + BeiDou solution has one code sigma for every system.** The
+  `gpsbds` mode exists and carries one reference satellite per constellation
+  (see [rtk.md](rtk.md) §12), but all systems still share the same scalar
+  sigma. On the chapter's zero baseline that lets the noisier GPS code pull the
+  float solution back: mixed 0.0866 m against BDS-only 0.0730 m. Per-system (and
+  per-orbital-family) weighting is what would let the mixed solution keep the
+  best of both; `SPPIFCode` has to carry a sigma per constellation first.
 - **The double differences are weighted as uncorrelated by default.** `differenceSat`
   combines the two single-difference weights as `1/(1/w_rover + 1/w_base)`, one
   equation at a time; the strict form, behind `--dd-cov`, is `Q_DD = C·Q_SD·Cᵀ`
@@ -161,16 +164,19 @@ silently covering only the satellites the sample happens to carry.
 
 Roughly in order of value per unit of effort:
 
-1. **Elevation-dependent weighting.** Currently all observations carry equal
-   weight. A `1/sin(el)` or exponential elevation model is a small change to
-   `SPPIFCode` and usually improves the vertical solution most.
-2. **Per-constellation sigma.** Extend `SPPIFCode` to hold one sigma per
+1. **Per-constellation sigma.** Extend `SPPIFCode` to hold one sigma per
    system, which activates the reserved config keys and is the prerequisite for
-   meaningful GPS/BeiDou weighting.
-3. **Wire up the Kalman filter.** `src/SolverKalman.*` and
-   `src/KalmanFilter.*` compile and are in the library; `estimator = 2` is
-   already parsed. This would give a kinematic solution instead of per-epoch
-   least squares.
+   meaningful GPS/BeiDou weighting. Elevation weighting already exists
+   (`sin²(el)` below 30°), so what is missing is the system/family dimension.
+2. **Per-orbital-family sigma for BeiDou.** Once the solver carries more than
+   one sigma, GEO / IGSO / MEO can be weighted separately. The mixed-solution
+   ablation in `rtk.md` §12 shows that the family quota alone cannot beat using
+   every satellite, because a quota throws information away; weighting keeps
+   the satellites and discounts the unreliable ones.
+3. **Wire up the Kalman filter in the SPP program.** `src/SolverKalman.*` and
+   `src/KalmanFilter.*` are in the library and the RTK program already uses
+   them (`--estimator kalman`); `spp_if` still parses `estimator = 2` and
+   ignores it.
 4. **Absolute accuracy assessment.** Add an option to read an IGS `.snx`
    solution and report against it, which would let the README quote a true
    accuracy rather than a repeatability figure.

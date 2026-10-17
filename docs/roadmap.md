@@ -45,6 +45,17 @@ Stated plainly, because a reader should not have to infer it from the source:
   applies on the single-frequency path. The default dual-frequency
   ionosphere-free combination removes the first-order ionospheric delay by
   construction.
+- **The BDS columns cannot use precise satellite products yet.** The loader
+  accepts the GFZ MGEX orbit and clock unchanged — they carry `C01…C60` — but
+  swapping them in makes both BDS columns *worse*: SPP 3D-RMS 3.124 → 6.176 m on
+  BDS-3 and 13.502 → 20.751 m on BDS-2, with the scatter growing too. That is the
+  signature of a per-satellite code bias rather than a datum shift: GFZ's BDS
+  clock is referenced to the B1I/B3I combination, while the broadcast clock the
+  solver assumes is B3I plus TGD. GPS is unaffected by the same products (GBM
+  gives 2.878 m against CODE's 2.844 m). Fixing it needs a SINEX-BIAS/OSB reader
+  and a per-signal correction on the code observations; until then the broadcast
+  clock is the self-consistent choice for BDS. See `rtk.md` §4 for the measured
+  table.
 
 ## Known issues
 

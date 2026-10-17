@@ -208,16 +208,43 @@ void differenceStation(EquSys& equSysRover,
 SatID findDatumSat(bool& firstEpoch,
                    SatValueMap& satElevData);
 
+/// One reference satellite per constellation, keyed by `SatID::system`.
+///
+/// A double difference removes the satellite clock and the satellite hardware
+/// delay by differencing against a reference satellite. That reference must be
+/// in the same constellation: GPS and BeiDou do not share those terms. A
+/// single-constellation solve therefore carries one entry here, and a GPS +
+/// BeiDou solve carries two.
+typedef std::map<std::string, SatID> DatumSatMap;
+
+void differenceSat( const DatumSatMap& datumSats,
+                    EquSys& equSysSD, VariableDataMap& csFlagSD,
+                    EquSys& equSysDD, VariableDataMap& csFlagDD,
+                    bool ddCov = false);
+
+/// Convenience overload for the single-constellation case.
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD, VariableDataMap& csFlagSD,
                     EquSys& equSysDD, VariableDataMap& csFlagDD,
                     bool ddCov = false);
 
+void differenceSat( const DatumSatMap& datumSats,
+                    EquSys& equSysSD,
+                    EquSys& equSysDD,
+                    bool ddCov = false);
+
+/// Convenience overload for the single-constellation case.
 void differenceSat( SatID& datumSat,
                     EquSys& equSysSD,
                     EquSys& equSysDD,
                     bool ddCov = false);
 
+void ambiguityDatum(bool& firstEpoch,
+                    const DatumSatMap& datumSats,
+                    VariableDataMap& fixedAmbData,
+                    EquSys& equSysDD);
+
+/// Convenience overload for the single-constellation case.
 void ambiguityDatum(bool& firstEpoch,
                     SatID& datumSat,
                     VariableDataMap& fixedAmbData,

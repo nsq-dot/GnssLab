@@ -305,6 +305,35 @@ struct RTKConfigData {
      */
     double ratioThreshold;
 
+    // ---- mixed GPS + BeiDou: which BeiDou satellites take part ---------------
+    /**
+     * Relative number of GEO : IGSO : MEO satellites to carry, as
+     * "GEO,IGSO,MEO" (for example "1,2,3"). A zero excludes that family.
+     *
+     * Only meaningful with `sys = gpsbds`. With no cap (`bdsMaxSats = 0`) every
+     * satellite of an enabled family is used, so the ratio only excludes
+     * families then; with a cap it allocates the slots. Within a family, the
+     * highest-elevation satellites are kept.
+     *
+     * The three families are not equal citizens. A GEO is stationary, so its
+     * geometry is fixed for the whole run; an IGSO is high over the
+     * Asia-Pacific but stays over one longitude; a MEO sweeps a different sky
+     * over the run and is the best of the three for geometry. The default is
+     * equal quotas, and the chapter's tables measure which ratio actually
+     * helps on this dataset rather than asserting one.
+     */
+    std::string bdsOrbitRatio;
+
+    /**
+     * Total number of BeiDou satellites to carry in the mixed solution. 0
+     * means "no cap - use every satellite that has the required code pair".
+     *
+     * With a positive value the slot allocation follows `bdsOrbitRatio`; if a
+     * family cannot fill its slots the remainder goes to the other enabled
+     * families. A family with quota 0 is never used.
+     */
+    int bdsMaxSats;
+
     /// Values used when no config file is supplied or a key is absent.
     static RTKConfigData defaults();
 

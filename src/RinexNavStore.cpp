@@ -383,6 +383,25 @@ void RinexNavStore::loadFile(string &file) {
 // ===================================================
 // 判断是否为北斗 GEO 卫星（C01~C05）
 // ===================================================
+BdsOrbitType RinexNavStore::bdsOrbitType(const SatID& sat) const
+{
+    if (sat.system != "C")
+        return BdsOrbitType::Unknown;
+
+    auto it = bdsEphData.find(sat);
+    if (it != bdsEphData.end() && !it->second.empty()) {
+        // Any record will do: sqrt_A and i0 are stable over the day, and the
+        // classification is a property of the orbit, not of the epoch.
+        const NavEphBDS &eph = it->second.begin()->second;
+        BdsOrbitType type = bdsOrbitTypeFromElements(eph.sqrt_A, eph.i0);
+        if (type != BdsOrbitType::Unknown)
+            return type;
+    }
+
+    // No broadcast record (C56 in the chapter's data), or a malformed one.
+    return bdsOrbitTypeFromPRN(sat);
+}
+
 bool RinexNavStore::ifBDS_GEO(const SatID& sat) const
 {
     if (sat.system != "C")

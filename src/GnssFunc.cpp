@@ -1456,6 +1456,15 @@ void differenceSat( SatID& datumSat,
                     EquSys& equSysSD,
                     EquSys& equSysDD,
                     bool ddCov ) {
+    DatumSatMap datumSats;
+    datumSats[datumSat.system] = datumSat;
+    differenceSat(datumSats, equSysSD, equSysDD, ddCov);
+}
+
+void differenceSat( const DatumSatMap& datumSats,
+                    EquSys& equSysSD,
+                    EquSys& equSysDD,
+                    bool ddCov ) {
     //----------------------------------------------------
     // 根据基准卫星，选择每个观测类型的观测值，并将其他的与基准卫星对应观测值求差
     // warning:
@@ -1470,6 +1479,12 @@ void differenceSat( SatID& datumSat,
     // string obsStr = obsType + system;
     //----------------------------------------------------
 
+    // 基准星按星座各一颗。GPS 与北斗的卫星钟差/硬件延迟互不相干，所以
+    // 一颗 GPS 基准星不能给北斗卫星做差；反过来也一样。
+    std::set<SatID> datumSet;
+    for (const auto &kv : datumSats)
+        datumSet.insert(kv.second);
+
     std::map<ObsID, EquData> datumEquData;
     std::map<EquID, EquData> otherEquData;
 
@@ -1478,12 +1493,13 @@ void differenceSat( SatID& datumSat,
     if (debug)
     {
         cout << "differenceSat:" << endl;
-        cout << "datumSat:" << datumSat << endl;
+        for (const auto &kv : datumSats)
+            cout << "datumSat " << kv.first << ":" << kv.second << endl;
     }
 
     for(auto ed: equData)
     {
-        if(ed.first.sat == datumSat)
+        if(datumSet.count(ed.first.sat))
         {
             ObsID obsID(ed.first.sat.system, ed.first.obsType);
             if(debug)
@@ -1696,6 +1712,15 @@ void differenceSat( SatID& datumSat,
                     EquSys& equSysSD, VariableDataMap& csFlagSD,
                     EquSys& equSysDD, VariableDataMap& csFlagDD,
                     bool ddCov ) {
+    DatumSatMap datumSats;
+    datumSats[datumSat.system] = datumSat;
+    differenceSat(datumSats, equSysSD, csFlagSD, equSysDD, csFlagDD, ddCov);
+}
+
+void differenceSat( const DatumSatMap& datumSats,
+                    EquSys& equSysSD, VariableDataMap& csFlagSD,
+                    EquSys& equSysDD, VariableDataMap& csFlagDD,
+                    bool ddCov ) {
     //----------------------------------------------------
     // 根据基准卫星，选择每个观测类型的观测值，并将其他的与基准卫星对应观测值求差
     // warning:
@@ -1710,6 +1735,11 @@ void differenceSat( SatID& datumSat,
     // string obsStr = obsType + system;
     //----------------------------------------------------
 
+    // 基准星按星座各一颗；见三参数重载处的说明。
+    std::set<SatID> datumSet;
+    for (const auto &kv : datumSats)
+        datumSet.insert(kv.second);
+
     std::map<ObsID, EquData> datumEquData;
     std::map<EquID, EquData> otherEquData;
 
@@ -1718,7 +1748,7 @@ void differenceSat( SatID& datumSat,
 
     for(auto ed: equData)
     {
-        if(ed.first.sat == datumSat)
+        if(datumSet.count(ed.first.sat))
         {
             ObsID obsID(ed.first.sat.system, ed.first.obsType);
             if(debug)
@@ -1956,16 +1986,31 @@ void ambiguityDatum(bool& firstEpoch,
                     SatID& datumSat,
                     VariableDataMap& fixedAmbData,
                     EquSys& equSysDD){
+    DatumSatMap datumSats;
+    datumSats[datumSat.system] = datumSat;
+    ambiguityDatum(firstEpoch, datumSats, fixedAmbData, equSysDD);
+}
+
+void ambiguityDatum(bool& firstEpoch,
+                    const DatumSatMap& datumSats,
+                    VariableDataMap& fixedAmbData,
+                    EquSys& equSysDD){
+
+    // 每个星座各一颗基准星，所以这里可能有两颗（GPS + 北斗）。它们在星间
+    // 差分里都没有被观测到，各自带来一个秩亏，必须各补一条约束。
+    std::set<SatID> datumSet;
+    for (const auto &kv : datumSats)
+        datumSet.insert(kv.second);
 
     // 对于第一个历元，直接将基准卫星模糊度固定为零即可。
     if(firstEpoch)
     {
         for(auto var:equSysDD.varSet)
         {
-            if(var.getSat() == datumSat)
+            if(datumSet.count(var.getSat()))
             {
                 EquID equIDDatum;
-                equIDDatum.sat = datumSat;
+                equIDDatum.sat = var.getSat();
                 equIDDatum.obsType = var.getObsID().toString();
 
                 EquData equDataDatum;
@@ -1983,10 +2028,10 @@ void ambiguityDatum(bool& firstEpoch,
         for(auto vd: fixedAmbData)
         {
             // 生成模糊度基准的观测方程
-            if(vd.first.getSat()==datumSat)
+            if(datumSet.count(vd.first.getSat()))
             {
                 EquID equIDDatum;
-                equIDDatum.sat = datumSat;
+                equIDDatum.sat = vd.first.getSat();
                 equIDDatum.obsType = vd.first.getObsID().toString();
 
                 EquData equDataDatum;

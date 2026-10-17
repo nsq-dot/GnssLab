@@ -101,6 +101,67 @@ inline int bdsGeneration(const SatID &sat) {
     return (sat.id <= 16) ? 2 : 3;
 }
 
+/**
+ * BeiDou orbital type: GEO, IGSO or MEO.
+ *
+ * The three families are not interchangeable for relative positioning. A GEO
+ * sits at a fixed longitude: over a two-hour run its elevation and azimuth do
+ * not change at all, so whatever geometry it contributes, it contributes once
+ * and for the whole run. An IGSO traces a figure eight over the Asia-Pacific
+ * at high elevation; its geometry changes slowly and stays centred on one
+ * longitude. A MEO moves around the globe and is the only one of the three that
+ * sweeps out a genuinely different sky over the run. That is why the mixed
+ * solution lets a caller choose how many of each to carry (see
+ * RTKConfigData::bdsOrbitRatio) instead of taking all of them.
+ *
+ * The classification is derived from the broadcast elements, not from a
+ * hard-coded PRN table:
+ *
+ *   GEO    a = 42164 km, i = 0 deg      sqrt_A = 6493.4 sqrt(m), i0 ~ 0.1 rad
+ *   IGSO   a = 42164 km, i = 55 deg     sqrt_A = 6493.4 sqrt(m), i0 ~ 0.96 rad
+ *   MEO    a = 27906 km, i = 55 deg     sqrt_A = 5282.6 sqrt(m), i0 ~ 0.96 rad
+ *
+ * The ephemeris-free fallback below covers a satellite whose broadcast record
+ * is missing from the navigation file (C56 in the chapter's dataset is one).
+ * It follows the constellation's PRN assignments; note C59..C63 are GEO even
+ * though their PRN is above the IGSO block, which is exactly the kind of
+ * detail a PRN-only classifier gets wrong.
+ */
+enum class BdsOrbitType { GEO, IGSO, MEO, Unknown };
+
+/// Classify from broadcast elements. `i0` is in radians here, as loaded.
+inline BdsOrbitType bdsOrbitTypeFromElements(double sqrtA, double i0) {
+    if (!(sqrtA > 0.0)) return BdsOrbitType::Unknown;
+    const double a = sqrtA * sqrtA;
+    // GEO and IGSO are both geosynchronous (42164 km); MEO is 27906 km.
+    if (a > 3.5e7) {
+        // GEO keeps an inclination near zero; IGSO is inclined about 55 deg.
+        return (i0 > -0.2 && i0 < 0.2) ? BdsOrbitType::GEO : BdsOrbitType::IGSO;
+    }
+    return BdsOrbitType::MEO;
+}
+
+/// Classify by PRN, for a satellite with no broadcast ephemeris at hand.
+inline BdsOrbitType bdsOrbitTypeFromPRN(const SatID &sat) {
+    if (sat.system != "C") return BdsOrbitType::Unknown;
+    const int prn = sat.id;
+    if (prn >= 1 && prn <= 5) return BdsOrbitType::GEO;
+    if (prn >= 59 && prn <= 63) return BdsOrbitType::GEO;
+    if ((prn >= 6 && prn <= 10) || prn == 13 || prn == 16 ||
+        (prn >= 38 && prn <= 40))
+        return BdsOrbitType::IGSO;
+    return BdsOrbitType::MEO;
+}
+
+inline const char *bdsOrbitTypeName(BdsOrbitType type) {
+    switch (type) {
+        case BdsOrbitType::GEO: return "GEO";
+        case BdsOrbitType::IGSO: return "IGSO";
+        case BdsOrbitType::MEO: return "MEO";
+        default: return "UNKNOWN";
+    }
+}
+
 // 为避免因多次包含头文件导致非inline函数多重定义错误，有两种解决方案：
 // 1. 将函数声明为 inline 并在头文件中定义，使得每个包含该头文件的源文件都有函数体副本但不会链接冲突。
 // 2. 在头文件中仅声明函数，在单独的源文件中定义函数，确保整个程序中只有一个函数定义，避免重复定义错误。

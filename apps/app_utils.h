@@ -152,21 +152,27 @@ inline std::map<string, std::set<string>> cycleSlipObsTypes(bool gps, bool bds) 
  * apart is the point - do not merge them.
  */
 struct RtkMode {
-    string key;                          // "gps" | "bds2" | "bds3" | "bds23"
-    string system;                       // "G" or "C"
+    string key;                          // "gps" | "bds2" | "bds3" | "bds23" | "gpsbds"
     string label;                        // human-readable, for --help and the manifest
-    std::set<string> rawTypes;           // 3-char names to select in the RINEX reader
+
+    // Everything is keyed by constellation, because a mixed mode needs one set
+    // of observation types and one list of code pairs per system. Single-system
+    // modes carry exactly one entry, so their behaviour is unchanged.
+    //
+    // 3-char names to select in the RINEX reader.
+    std::map<string, std::set<string>> rawTypesBySystem;
 
     // 2-char names, tried in order; the first pair whose two codes a satellite
     // actually carries is the one used for it. A single entry means "every
-    // satellite must have these two", which is every mode but the mixed one.
+    // satellite must have these two", which is every mode but the merged BD
+    // ones.
     //
     // A list rather than one pair because of the fact chapter 8 keeps running
     // into: the two BeiDou generations do not broadcast the same second
     // frequency. BDS-2 has B2I (`C7I`), BDS-3 has B2a (`C5P`), and neither
     // contains the other - so no single pair covers both, which is why a merged
     // mode needs somewhere to say "B2I, or failing that B2a".
-    std::vector<std::pair<string, string>> codePairs;
+    std::map<string, std::vector<std::pair<string, string>>> codePairsBySystem;
 };
 
 /// Every mode the program accepts, in the order --help lists them.
@@ -175,26 +181,23 @@ inline std::vector<RtkMode> rtkModes() {
 
     RtkMode gps;
     gps.key = "gps";
-    gps.system = "G";
     gps.label = "GPS L1/L2 (C1C+C2W)";
-    gps.rawTypes = {"C1C", "C2W", "L1C", "L2W"};
-    gps.codePairs = {{"C1", "C2"}};
+    gps.rawTypesBySystem["G"] = {"C1C", "C2W", "L1C", "L2W"};
+    gps.codePairsBySystem["G"] = {{"C1", "C2"}};
     m.push_back(gps);
 
     RtkMode bds2;
     bds2.key = "bds2";
-    bds2.system = "C";
     bds2.label = "BDS-2 B1I/B2I (C2I+C7I)";
-    bds2.rawTypes = {"C2I", "C7I", "L2I", "L7I"};
-    bds2.codePairs = {{"C2", "C7"}};
+    bds2.rawTypesBySystem["C"] = {"C2I", "C7I", "L2I", "L7I"};
+    bds2.codePairsBySystem["C"] = {{"C2", "C7"}};
     m.push_back(bds2);
 
     RtkMode bds3;
     bds3.key = "bds3";
-    bds3.system = "C";
     bds3.label = "BDS-3 B1I/B2a (C2I+C5P)";
-    bds3.rawTypes = {"C2I", "C5P", "L2I", "L5P"};
-    bds3.codePairs = {{"C2", "C5"}};
+    bds3.rawTypesBySystem["C"] = {"C2I", "C5P", "L2I", "L5P"};
+    bds3.codePairsBySystem["C"] = {{"C2", "C5"}};
     m.push_back(bds3);
 
     // Both generations in one solution. The exercise that asks for this is
@@ -206,13 +209,32 @@ inline std::vector<RtkMode> rtkModes() {
     // apps/rtk.cpp's --isb.
     RtkMode bds23;
     bds23.key = "bds23";
-    bds23.system = "C";
     bds23.label = "BDS-2+BDS-3 B1I/B2I+B2a (C2I+C7I+C5P)";
-    bds23.rawTypes = {"C2I", "C7I", "C5P", "L2I", "L7I", "L5P"};
+    bds23.rawTypesBySystem["C"] = {"C2I", "C7I", "C5P", "L2I", "L7I", "L5P"};
     // Order matters: a BDS-2 satellite has B2I and takes the first pair, a
     // BDS-3 one does not and falls through to B2a.
-    bds23.codePairs = {{"C2", "C7"}, {"C2", "C5"}};
+    bds23.codePairsBySystem["C"] = {{"C2", "C7"}, {"C2", "C5"}};
     m.push_back(bds23);
+
+    // GPS + BeiDou in one solution. Until this mode existed, `--sys` could only
+    // pick one constellation because differenceSat() anchored the whole double
+    // difference on a single reference satellite. A mixed solution needs one
+    // reference per constellation: a GPS satellite can anchor other GPS
+    // satellites, but its clock and hardware delay are not the ones a BeiDou
+    // satellite must cancel. The coordinates are shared, so the two blocks are
+    // tied together through dX/dY/dZ and nothing else.
+    //
+    // BeiDou contributes B1I with B2I (BDS-2) or B2a (BDS-3), the same
+    // per-satellite choice bds23 makes. How many satellites of each orbital
+    // family take part is a separate knob - see RTKConfigData::bdsOrbitRatio.
+    RtkMode mixed;
+    mixed.key = "gpsbds";
+    mixed.label = "GPS+BDS L1/L2 + B1I/B2I or B2a (C1C+C2W, C2I+C7I/C5P)";
+    mixed.rawTypesBySystem["G"] = {"C1C", "C2W", "L1C", "L2W"};
+    mixed.rawTypesBySystem["C"] = {"C2I", "C7I", "C5P", "L2I", "L7I", "L5P"};
+    mixed.codePairsBySystem["G"] = {{"C1", "C2"}};
+    mixed.codePairsBySystem["C"] = {{"C2", "C7"}, {"C2", "C5"}};
+    m.push_back(mixed);
 
     return m;
 }

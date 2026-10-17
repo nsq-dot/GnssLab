@@ -79,7 +79,10 @@
  *   --nav <file>          Broadcast navigation file
  *   --out-dir <dir>       Output directory
  *   --stop <ISO8601>      Stop epoch, e.g. 2022-03-03T06:49:00
- *   --sys <mode>          gps | bds2 | bds3  (default: gps)
+ *   --sys <mode>          gps | bds2 | bds3 | bds23 | gpsbds (default: gps)
+ *   --bds-max-sats <n>    Mixed solution: cap on BeiDou satellites (0 = all)
+ *   --bds-orbit-ratio <g,i,m>  GEO:IGSO:MEO relative slots (default 1,1,1)
+ *   --dump-orbit-types    Print the BeiDou orbital classification and exit
  *   --trop                Apply the troposphere-delay correction (off by default)
  *   --bds-tgd             Apply the BeiDou TGD correction (bds* only, off by default)
  *   --fix                 Resolve the ambiguities and write the fixed solution
@@ -90,6 +93,7 @@
  */
 
 #include <string>
+#include <sstream>
 #include <fstream>
 #include <iostream>
 #include <iomanip>
@@ -100,6 +104,7 @@
 #include <set>
 #include <map>
 #include <vector>
+#include <array>
 #include <algorithm>
 #include <system_error>
 #include <filesystem>
@@ -147,6 +152,12 @@ void printUsage(const char *prog) {
     for (const RtkMode &m : rtkModes())
         cout << "                       " << left << setw(6) << m.key << " " << m.label << "\n";
     cout <<
+         "  --bds-max-sats <n> Cap the BeiDou satellites in a gpsbds solution\n"
+         "                     (0 = keep every satellite; default 0)\n"
+         "  --bds-orbit-ratio <g,i,m>\n"
+         "                     Relative GEO:IGSO:MEO slots when the cap binds\n"
+         "                     (default 1,1,1; 0 excludes a family)\n"
+         "  --dump-orbit-types Print each BeiDou satellite's orbit family and exit\n"
          "  --isb              Estimate the receiver inter-system bias between\n"
          "                     BDS-2 and BDS-3 (only meaningful for --sys bds23)\n"
          "  --trop             Apply the troposphere-delay correction in the\n"
@@ -276,34 +287,191 @@ DdDiag diagnoseDd(const EquSys &equSys, const VectorXd &state) {
 这里改成"在站间差分后还活着的卫星里挑最高仰角"，从根上消掉这个失败模式；
 同时用usedFallback 报告这次选择是否跟"只看流动站"的选择不同，免得悄悄换了基准星没人发现。*/
 
-    SatID pickDatumSat(const EquSys &equSysSD, const SatValueMap &satElevData, bool &usedFallback) {
+/**
+ * One reference satellite per constellation.
+ *
+ * A double difference has to use a reference from the same constellation: the
+ * satellite clock and hardware delay it removes are GPS terms for GPS and
+ * BeiDou terms for BeiDou, and neither cancels the other. For the single-system
+ * modes this returns exactly the satellite the old pickDatumSat() did, so their
+ * byte anchors do not move.
+ *
+ * `usedFallback` keeps its old meaning - the chosen datum is not the rover's
+ * own highest-elevation satellite - and for a mixed solution it is set if ANY
+ * constellation had to fall back.
+ */
+std::map<string, SatID> pickDatumSats(const EquSys &equSysSD,
+                                      const SatValueMap &satElevData,
+                                      bool &usedFallback) {
     set<SatID> sdSats;
     for (const auto &oe : equSysSD.obsEquData)
         sdSats.insert(oe.first.sat);
 
-    SatID best;
-    double bestElev = -1.0;
+    std::map<string, SatID> best;
+    std::map<string, double> bestElev;
     for (const SatID &s : sdSats) {
         auto it = satElevData.find(s);
         double elev = (it == satElevData.end()) ? 0.0 : it->second;
-        if (elev > bestElev) {
-            bestElev = elev;
-            best = s;
+        auto bi = best.find(s.system);
+        if (bi == best.end()) {
+            best[s.system] = s;
+            bestElev[s.system] = elev;
+        } else if (elev > bestElev[s.system] ||
+                   (elev == bestElev[s.system] && s < bi->second)) {
+            // The id tie-break makes the choice deterministic when two
+            // satellites have exactly the same elevation.
+            best[s.system] = s;
+            bestElev[s.system] = elev;
         }
     }
 
     // Report whether this agrees with the rover-only choice, so a change in
-    // which satellite anchored an epoch is visible rather than silent.
-    SatID roverTop;
-    double roverTopElev = -1.0;
+    // which satellite anchored an epoch is visible rather than silent. The
+    // comparison is per constellation: in a mixed solution the global top
+    // satellite is always one of the two, so comparing every datum against it
+    // would report a fallback on every single epoch.
+    std::map<string, SatID> roverTop;
+    std::map<string, double> roverTopElev;
     for (const auto &se : satElevData) {
-        if (se.second > roverTopElev) {
-            roverTopElev = se.second;
-            roverTop = se.first;
+        auto it = roverTopElev.find(se.first.system);
+        if (it == roverTopElev.end() || se.second > it->second ||
+            (se.second == it->second && se.first < roverTop[se.first.system])) {
+            roverTopElev[se.first.system] = se.second;
+            roverTop[se.first.system] = se.first;
         }
     }
-    usedFallback = !(best == roverTop);
+    usedFallback = false;
+    for (const auto &kv : best) {
+        auto it = roverTop.find(kv.first);
+        if (it != roverTop.end() && !(kv.second == it->second))
+            usedFallback = true;
+    }
     return best;
+}
+
+/// Which orbital families the BeiDou selection covers, in quota order.
+int orbitIndex(BdsOrbitType type) {
+    switch (type) {
+        case BdsOrbitType::GEO: return 0;
+        case BdsOrbitType::IGSO: return 1;
+        case BdsOrbitType::MEO: return 2;
+        default: return 2;   // no ephemeris: treat like a MEO, the fallback
+    }
+}
+
+/// Counts for the diagnostics: candidates seen in the epoch, and selected.
+struct BdsOrbitCounts {
+    int candidate[3] = {0, 0, 0};
+    int selected[3] = {0, 0, 0};
+};
+
+/**
+ * Choose the BeiDou satellites that take part in the mixed solution.
+ *
+ * `ratio` is the relative number of GEO : IGSO : MEO slots and `maxSats` the
+ * total cap. With no cap (or with fewer candidates than the cap) everything is
+ * kept, so the default mixed run loses nothing. With a cap, each family gets
+ * its proportional share of the slots, the remainder goes by largest fractional
+ * part, and within a family the highest-elevation satellites win. If a family
+ * cannot fill its share, the spare slots go to the other enabled families.
+ *
+ * A zero quota excludes that family outright. All-zero is rejected at the
+ * command line rather than silently producing a GPS-only solution.
+ */
+std::vector<SatID> selectBdsByOrbit(const set<SatID> &sdSats,
+                                    const SatValueMap &satElevData,
+                                    const RinexNavStore &navStore,
+                                    const std::array<int, 3> &ratio,
+                                    int maxSats,
+                                    BdsOrbitCounts &counts) {
+    std::vector<SatID> candidates[3];
+    for (const SatID &s : sdSats) {
+        if (s.system != "C") continue;
+        int k = orbitIndex(navStore.bdsOrbitType(s));
+        candidates[k].push_back(s);
+        ++counts.candidate[k];
+    }
+
+    const int total = (int) (candidates[0].size() + candidates[1].size() +
+                             candidates[2].size());
+    if (maxSats <= 0 || maxSats >= total) {
+        // No cap (or a cap larger than the sky): keep every candidate of the
+        // families the ratio enables. A zero quota still excludes a family,
+        // which is how "MEO + IGSO only, no cap" is expressed.
+        std::vector<SatID> all;
+        for (int k = 0; k < 3; ++k) {
+            if (ratio[k] == 0) continue;
+            counts.selected[k] = (int) candidates[k].size();
+            all.insert(all.end(), candidates[k].begin(), candidates[k].end());
+        }
+        return all;
+    }
+
+    auto higher = [&](const SatID &a, const SatID &b) {
+        auto ea = satElevData.find(a);
+        auto eb = satElevData.find(b);
+        double va = (ea == satElevData.end()) ? 0.0 : ea->second;
+        double vb = (eb == satElevData.end()) ? 0.0 : eb->second;
+        if (va != vb) return va > vb;
+        return a < b;
+    };
+    for (auto &c : candidates) std::sort(c.begin(), c.end(), higher);
+
+    int desired[3] = {0, 0, 0};
+    const int ratioSum = ratio[0] + ratio[1] + ratio[2];
+    double frac[3] = {0.0, 0.0, 0.0};
+    int assigned = 0;
+    for (int k = 0; k < 3; ++k) {
+        double exact = (double) maxSats * ratio[k] / (double) ratioSum;
+        desired[k] = (int) std::floor(exact);
+        frac[k] = exact - desired[k];
+        assigned += desired[k];
+    }
+    // Largest remainder first; ties go to GEO, then IGSO (k order).
+    while (assigned < maxSats) {
+        int pick = -1;
+        for (int k = 0; k < 3; ++k) {
+            if (ratio[k] == 0) continue;
+            if (desired[k] >= (int) candidates[k].size()) continue;
+            if (pick < 0 || frac[k] > frac[pick]) pick = k;
+        }
+        if (pick < 0) break;
+        ++desired[pick];
+        frac[pick] = -1.0;   // only one extra slot per family per pass
+        ++assigned;
+    }
+    // A family that cannot fill its slots hands them to the others.
+    for (int k = 0; k < 3; ++k) {
+        if (desired[k] <= (int) candidates[k].size()) continue;
+        int spill = desired[k] - (int) candidates[k].size();
+        desired[k] = (int) candidates[k].size();
+        for (int other = 0; other < 3 && spill > 0; ++other) {
+            if (other == k || ratio[other] == 0) continue;
+            int room = (int) candidates[other].size() - desired[other];
+            int take = std::min(room, spill);
+            desired[other] += take;
+            spill -= take;
+        }
+    }
+
+    std::vector<SatID> selected;
+    for (int k = 0; k < 3; ++k) {
+        int take = std::min(desired[k], (int) candidates[k].size());
+        counts.selected[k] = take;
+        selected.insert(selected.end(), candidates[k].begin(),
+                        candidates[k].begin() + take);
+    }
+    return selected;
+}
+
+/// Erase every satellite not in `keep` from a station-difference system.
+void keepOnlySats(EquSys &equSys, const set<SatID> &keep) {
+    for (auto it = equSys.obsEquData.begin(); it != equSys.obsEquData.end(); ) {
+        if (!keep.count(it->first.sat))
+            it = equSys.obsEquData.erase(it);
+        else
+            ++it;
+    }
 }
 
 /// JSON-escape a string on its way into the manifest.
@@ -389,6 +557,12 @@ int main(int argc, char *argv[]) {
     // Chapter 8 exercise 3: weight the double differences with their full
     // covariance Q_DD = C*Q_SD*C^T instead of treating them as independent.
     bool optDdCov = false;
+    // Mixed GPS + BeiDou: how many BeiDou satellites to carry, and in what
+    // GEO : IGSO : MEO proportion. -1 / empty mean "not given on the command
+    // line", so the config file's value survives.
+    int optBdsMaxSats = -1;
+    string optBdsOrbitRatio;
+    bool optDumpOrbitTypes = false;
 
     for (int i = 1; i < argc; ++i) {
         string a = argv[i];
@@ -422,6 +596,16 @@ int main(int argc, char *argv[]) {
         else if (a == "--base-xyz")   optBaseXyz = needValue("--base-xyz");
         else if (a == "--est-trop")   optEstTrop = true;
         else if (a == "--dd-cov")     optDdCov = true;
+        else if (a == "--bds-max-sats") {
+            try {
+                optBdsMaxSats = std::stoi(needValue("--bds-max-sats"));
+            } catch (const std::exception &) {
+                cerr << "Error: --bds-max-sats needs an integer\n";
+                return 2;
+            }
+        }
+        else if (a == "--bds-orbit-ratio") optBdsOrbitRatio = needValue("--bds-orbit-ratio");
+        else if (a == "--dump-orbit-types") optDumpOrbitTypes = true;
         else if (a == "--verbose")    optVerbose = true;
         else if (!a.empty() && a[0] == '-') {
             cerr << "Error: unknown option '" << a << "'\n";
@@ -477,6 +661,8 @@ int main(int argc, char *argv[]) {
     if (optIsb)              cfg.estimateISB = true;
     if (optTrop)             cfg.enableTrop = true;
     if (optBdsTgd)           cfg.enableBDSTGD = true;
+    if (optBdsMaxSats >= 0)  cfg.bdsMaxSats = optBdsMaxSats;
+    if (!optBdsOrbitRatio.empty()) cfg.bdsOrbitRatio = optBdsOrbitRatio;
     if (!optEstimator.empty()) cfg.estimator = optEstimator;
     if (cfg.estimator != "lsq" && cfg.estimator != "kalman") {
         cerr << "Error: estimator must be 'lsq' or 'kalman', got '"
@@ -511,6 +697,41 @@ int main(int argc, char *argv[]) {
         cerr << "Error: unknown sys '" << cfg.sys << "' (expected one of: "
              << rtkModeKeys() << ")\n";
         return 2;
+    }
+
+    // GEO : IGSO : MEO, three non-negative integers with at least one non-zero.
+    // Parsed once here so a bad value stops the run before any file is opened.
+    std::array<int, 3> bdsOrbitRatio = {1, 1, 1};
+    {
+        string s = cfg.bdsOrbitRatio;
+        std::replace(s.begin(), s.end(), ',', ' ');
+        std::stringstream ss(s);
+        int a = 0, b = 0, c = 0;
+        string extra;
+        if (!(ss >> a >> b >> c) || (ss >> extra)) {
+            cerr << "Error: bdsOrbitRatio wants three integers GEO,IGSO,MEO "
+                 << "(got '" << cfg.bdsOrbitRatio << "')\n";
+            return 2;
+        }
+        if (a < 0 || b < 0 || c < 0) {
+            cerr << "Error: bdsOrbitRatio cannot be negative (got '"
+                 << cfg.bdsOrbitRatio << "')\n";
+            return 2;
+        }
+        if (a + b + c <= 0) {
+            cerr << "Error: bdsOrbitRatio excludes every BeiDou family\n";
+            return 2;
+        }
+        bdsOrbitRatio = {a, b, c};
+    }
+    if (cfg.bdsMaxSats < 0) {
+        cerr << "Error: bdsMaxSats must be >= 0 (0 means no cap)\n";
+        return 2;
+    }
+    const bool mixedSystems = mode.codePairsBySystem.size() > 1;
+    if (cfg.bdsMaxSats > 0 && !mixedSystems) {
+        cerr << "Warning: bdsMaxSats only applies to gpsbds; ignored for '"
+             << mode.key << "'\n";
     }
 
     string projectRoot = configDir.empty() ? "." : dirOf(configDir);
@@ -584,17 +805,28 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    if (optDumpOrbitTypes) {
+        // A diagnostic that does not need an epoch loop: the classification is
+        // a property of the broadcast elements, not of the observation file.
+        cout << "sat,orbitType\n";
+        for (const auto &kv : navStore.bdsEphData)
+            cout << kv.first.toString() << ","
+                 << bdsOrbitTypeName(navStore.bdsOrbitType(kv.first)) << "\n";
+        return 0;
+    }
+
     //---------------------------------------------------------------
     // Observation types and solver setup 观测类型与解算器设置
     //---------------------------------------------------------------
     // The reader selects on the RAW three-character names; SPPUCCodePhase then
     // keys everything off the collapsed two-character pair. Both come from the
     // same RtkMode so they cannot drift apart.
-    std::map<string, std::set<string>> selectedTypes;
-    selectedTypes[mode.system] = mode.rawTypes;
-
-    std::map<string, std::vector<std::pair<string, string>>> dualCodeTypes;
-    dualCodeTypes[mode.system] = mode.codePairs;
+    // One entry for a single-system mode, two for gpsbds. The receiver's clock
+    // is already estimated per system inside SPPUCCodePhase, so the observation
+    // selection is the only thing that needs to know both.
+    std::map<string, std::set<string>> selectedTypes = mode.rawTypesBySystem;
+    std::map<string, std::vector<std::pair<string, string>>> dualCodeTypes =
+        mode.codePairsBySystem;
 
     RinexObsReader readObsRover;
     readObsRover.setFileStream(&roverObsStream);
@@ -685,11 +917,14 @@ int main(int argc, char *argv[]) {
     // second frequencies.
     {
         std::map<string, std::vector<std::pair<string, string>>> bands;
-        for (const auto &cp : mode.codePairs) {
-            // "C2" -> "L2", "C7" -> "L7": the phase type is the code type with
-            // the leading C swapped for an L, the same rule SPPUCCodePhase uses.
-            bands[mode.system].push_back({"L" + cp.first.substr(1),
-                                          "L" + cp.second.substr(1)});
+        for (const auto &sysPairs : mode.codePairsBySystem) {
+            for (const auto &cp : sysPairs.second) {
+                // "C2" -> "L2", "C7" -> "L7": the phase type is the code type
+                // with the leading C swapped for an L, the same rule
+                // SPPUCCodePhase uses.
+                bands[sysPairs.first].push_back({"L" + cp.first.substr(1),
+                                                 "L" + cp.second.substr(1)});
+            }
         }
         setCycleSlipBands(bands);
     }
@@ -762,7 +997,14 @@ int main(int argc, char *argv[]) {
                   // mean the system is ill-conditioned and the cure is
                   // constraints, not a model) is decided by whether sppCond
                   // moves. See docs/rtk.md.
-                  "sppNObs,sppNUnk,sppRank,sppCond\n";
+                  "sppNObs,sppNUnk,sppRank,sppCond,"
+                  // Mixed-solution columns. `datumSats` lists every reference
+                  // satellite (G and/or C), while the legacy `datumSat` above
+                  // stays the GPS one when there is a GPS block. The counts are
+                  // the BeiDou candidates seen and the ones the quota kept;
+                  // both are zero for a single-system run.
+                  "datumSats,bdsCandGEO,bdsCandIGSO,bdsCandMEO,"
+                  "bdsSelGEO,bdsSelIGSO,bdsSelMEO\n";
     diagStream << fixed << setprecision(6);
 
     // --- the cycle-slip wiring, when asked for ------------------------------
@@ -934,10 +1176,69 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // --- BeiDou orbital-family quota (mixed solution only) ----------------
+        // GPS contributes every satellite it has; the cap applies to BeiDou,
+        // where a stationary GEO is not worth the same as a MEO. The selection
+        // is made on the STATION-DIFFERENCED satellites, i.e. on the ones that
+        // both receivers actually tracked.
+        BdsOrbitCounts orbitCounts;
+        if (mixedSystems) {
+            set<SatID> keep;
+            for (const SatID &s : sdSats)
+                if (s.system != "C") keep.insert(s);
+
+            std::vector<SatID> picked = selectBdsByOrbit(
+                sdSats, sppRover.getSatElevData(), navStore,
+                bdsOrbitRatio, cfg.bdsMaxSats, orbitCounts);
+            for (const SatID &s : picked) keep.insert(s);
+
+            keepOnlySats(equSysSD, keep);
+            sdSats.clear();
+            for (const auto &oe : equSysSD.obsEquData)
+                sdSats.insert(oe.first.sat);
+
+            // A constellation with fewer than two satellites cannot form a
+            // between-satellite difference at all. In a mixed solution that
+            // makes the epoch a single-system one, which is not what this mode
+            // promises - skip it and say so in the skip counts.
+            std::map<string, int> perSystem;
+            for (const SatID &s : sdSats) ++perSystem[s.system];
+            bool enoughForAll = true;
+            for (const auto &kv : mode.codePairsBySystem)
+                if (perSystem[kv.first] < 2) enoughForAll = false;
+            if (!enoughForAll) {
+                ++skipNoSd;
+                if (optVerbose)
+                    cout << "[skip] sod " << sod
+                         << " fewer than two common satellites in a system ("
+                         << perSystem["G"] << "G " << perSystem["C"] << "C)\n";
+                continue;
+            }
+        }
+
         // --- between satellites ----------------------------------------------
         bool datumFallback = false;
-        SatID datumSat = pickDatumSat(equSysSD, sppRover.getSatElevData(), datumFallback);
+        std::map<string, SatID> datumSats =
+            pickDatumSats(equSysSD, sppRover.getSatElevData(), datumFallback);
         if (datumFallback) ++skipDatumFallback;
+        if (datumSats.empty()) {
+            ++skipNoDd;
+            continue;
+        }
+
+        // The diagnostics keep one `datumSat` column for backward
+        // compatibility; a mixed solution reports the GPS one there and every
+        // reference in the extra `datumSats` column.
+        SatID datumSat = datumSats.begin()->second;
+        {
+            auto git = datumSats.find("G");
+            if (git != datumSats.end()) datumSat = git->second;
+        }
+        string datumSatsText;
+        for (const auto &kv : datumSats) {
+            if (!datumSatsText.empty()) datumSatsText += ";";
+            datumSatsText += kv.second.toString();
+        }
 
         EquSys equSysDD;
         VariableDataMap csFlagDd;
@@ -959,10 +1260,10 @@ int main(int argc, char *argv[]) {
               ambiguityDatum()，必须在求解前加）；
             - 最小二乘走三参数重载，把基准星模糊度直接差掉；
             */
-            differenceSat(datumSat, equSysSD, csFlagSd, equSysDD, csFlagDd,
+            differenceSat(datumSats, equSysSD, csFlagSd, equSysDD, csFlagDd,
                           optDdCov);
         } else {
-            differenceSat(datumSat, equSysSD, equSysDD, optDdCov);
+            differenceSat(datumSats, equSysSD, equSysDD, optDdCov);
         }
 
         if (equSysDD.obsEquData.empty() || equSysDD.varSet.size() < 3) {
@@ -1023,7 +1324,7 @@ int main(int argc, char *argv[]) {
                 // afterwards it pins the new reference to the value the previous
                 // epoch fixed it to, which is what keeps the ambiguity set
                 // continuous when the reference satellite changes.
-                ambiguityDatum(kalmanFirstEpoch, datumSat, kalmanFixedAmb, equSysDD);
+                ambiguityDatum(kalmanFirstEpoch, datumSats, kalmanFixedAmb, equSysDD);
                 solverKal.solve(equSysDD, csFlagDd);
                 stateVec = solverKal.getState();
                 covMatrix = solverKal.getCovMatrix();
@@ -1102,7 +1403,14 @@ int main(int argc, char *argv[]) {
                    << sppDiag.nObs << ","
                    << sppDiag.nUnk << ","
                    << sppDiag.rank << ","
-                   << sppDiag.cond << "\n";
+                   << sppDiag.cond << ","
+                   << datumSatsText << ","
+                   << orbitCounts.candidate[0] << ","
+                   << orbitCounts.candidate[1] << ","
+                   << orbitCounts.candidate[2] << ","
+                   << orbitCounts.selected[0] << ","
+                   << orbitCounts.selected[1] << ","
+                   << orbitCounts.selected[2] << "\n";
 
         printSolution(solStream, epoch, xyzRover, xyzRTKFloat);
         if (cfg.fixAmbiguity)
@@ -1190,14 +1498,52 @@ int main(int argc, char *argv[]) {
         // full covariance. Two runs of the same tree differ only in this.
         mf << "  \"ddCov\": " << (optDdCov ? "true" : "false") << ",\n";
         mf << "  \"bdsTgdEnabled\": " << (cfg.enableBDSTGD ? "true" : "false") << ",\n";
-        // A list, because a merged BDS-2 + BDS-3 mode has one pair per
-        // generation. The single-generation modes still write exactly one.
+        // A list, because a merged mode has one pair per generation (and
+        // gpsbds one per constellation). The single-generation modes still
+        // write exactly one.
         mf << "  \"codePairs\": [";
-        for (size_t k = 0; k < mode.codePairs.size(); ++k) {
-            mf << (k ? ", " : "") << "[\"" << jsonEscape(mode.codePairs[k].first)
-               << "\", \"" << jsonEscape(mode.codePairs[k].second) << "\"]";
+        {
+            bool first = true;
+            for (const auto &sysPairs : mode.codePairsBySystem) {
+                for (const auto &cp : sysPairs.second) {
+                    mf << (first ? "" : ", ") << "[\"" << jsonEscape(cp.first)
+                       << "\", \"" << jsonEscape(cp.second) << "\"]";
+                    first = false;
+                }
+            }
         }
         mf << "],\n";
+        // The same information keyed by constellation, which is what a mixed
+        // run needs to be reproducible: the flat list above cannot say whether
+        // C2/C7 belonged to GPS or BeiDou.
+        mf << "  \"systems\": [";
+        {
+            bool first = true;
+            for (const auto &kv : mode.codePairsBySystem) {
+                mf << (first ? "" : ", ") << "\"" << jsonEscape(kv.first) << "\"";
+                first = false;
+            }
+        }
+        mf << "],\n";
+        mf << "  \"codePairsBySystem\": {";
+        {
+            bool firstSys = true;
+            for (const auto &sysPairs : mode.codePairsBySystem) {
+                mf << (firstSys ? "" : ", ") << "\"" << jsonEscape(sysPairs.first)
+                   << "\": [";
+                for (size_t k = 0; k < sysPairs.second.size(); ++k) {
+                    mf << (k ? ", " : "")
+                       << "[\"" << jsonEscape(sysPairs.second[k].first)
+                       << "\", \"" << jsonEscape(sysPairs.second[k].second) << "\"]";
+                }
+                mf << "]";
+                firstSys = false;
+            }
+        }
+        mf << "},\n";
+        mf << "  \"bdsOrbitRatio\": [" << bdsOrbitRatio[0] << ", "
+           << bdsOrbitRatio[1] << ", " << bdsOrbitRatio[2] << "],\n";
+        mf << "  \"bdsMaxSats\": " << cfg.bdsMaxSats << ",\n";
         mf << "  \"rtkFloatOut\": \"" << jsonEscape(solFile) << "\",\n";
         if (wantCsFlags) {
             if (optDumpCs) {

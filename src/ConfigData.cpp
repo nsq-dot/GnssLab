@@ -262,6 +262,12 @@ RTKConfigData RTKConfigData::defaults() {
     c.fixAmbiguity = false;
     c.ratioThreshold = 3.0;
 
+    // Mixed GPS + BeiDou only. Equal quotas and no cap, so a `gpsbds` run
+    // without further options uses every satellite - the ratio starts to
+    // matter as soon as bdsMaxSats is positive.
+    c.bdsOrbitRatio = "1,1,1";
+    c.bdsMaxSats = 0;
+
     return c;
 }
 
@@ -287,6 +293,9 @@ RTKConfigData RTKConfigData::fromIni(const std::string &path) {
     c.estimateISB = reader.getValueAsBoolOr("estimateISB", c.estimateISB);
     c.fixAmbiguity = reader.getValueAsBoolOr("fixAmbiguity", c.fixAmbiguity);
     c.ratioThreshold = reader.getValueAsDoubleOr("ratioThreshold", c.ratioThreshold);
+
+    c.bdsOrbitRatio = reader.getValueAsStringOr("bdsOrbitRatio", c.bdsOrbitRatio);
+    c.bdsMaxSats = reader.getValueAsIntOr("bdsMaxSats", c.bdsMaxSats);
 
     return c;
 }

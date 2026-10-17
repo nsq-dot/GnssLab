@@ -47,6 +47,9 @@ public:
     NavEphGPS findGPSEph(const SatID &sat, const CommonTime &epoch);
     NavEphBDS findBDSEph(const SatID &sat, const CommonTime &epoch);
     bool ifBDS_GEO(const SatID& sat) const;
+    /// GEO / IGSO / MEO, from the broadcast elements when this store has them
+    /// and from the PRN assignment otherwise. See GnssStruct.h.
+    BdsOrbitType bdsOrbitType(const SatID& sat) const;
     /// destructor
     virtual ~RinexNavStore() {};
 

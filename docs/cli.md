@@ -223,29 +223,39 @@ that frame, and because the two frames' three values square-sum to the same
 total (the trace of a covariance is rotation-invariant) — so the ENU and ECEF
 rows are the same two numbers split differently, not two measurements.
 
-**Three of those figures also come in a zoomed version — nine figures, one per
+**Those figures also come in a directional version — nine figures, one per
 direction.** Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d redraw the same series as
-8-1, 8-4 and 8-6 over one short window taken out of the run, once for east, once
-for north and once for up (b, c and d respectively). Splitting by *direction*
-rather than by series is the point: **both curves stay in the same panel on one
-shared axis**, and legibility comes from decimating the epochs and drawing a
-marker on every one that is left. An earlier version split each figure into two
-lanes, one per series on its own scale, and that is the picture this one exists
-to replace — two lanes on two scales cannot be read against each other, and how
-far apart the two are is not a quantity worth reading anyway (the chapter's data
-is zero-baseline: one column is an absolute solution and the other a
-differential one). The directions differ by an order of magnitude — BDS-2's error
-is nearly all vertical — so one figure holding all three would squash one of
-them; and the Kalman filter's convergence, which 8-6 exists to show, is itself a
-vertical phenomenon on this dataset. They need no flag: each rides its parent's
-gate, so `--no-figures`, `--no-fix-figures` and a missing `--kalman-out` suppress
-them exactly as they suppress the full-span versions. The window (in seconds
-after the run's first epoch) and the decimation are constants in
+8-1, 8-4 and 8-6 one direction at a time, once for east, once for north and once
+for up (b, c and d respectively). Splitting by *direction* rather than by series
+is the point: **both curves stay in the same panel on one shared axis**. An
+earlier version split each figure into two lanes, one per series on its own
+scale, and that is the picture this one exists to replace — two lanes on two
+scales cannot be read against each other, and how far apart the two are is not a
+quantity worth reading anyway (the chapter's data is zero-baseline: one column is
+an absolute solution and the other a differential one). The directions differ by
+an order of magnitude — BDS-2's error is nearly all vertical — so one figure
+holding all three would squash one of them; and the Kalman filter's convergence,
+which 8-6 exists to show, is itself a vertical phenomenon on this dataset. They
+need no flag: each rides its parent's gate, so `--no-figures`, `--no-fix-figures`
+and a missing `--kalman-out` suppress them exactly as they suppress the full-span
+versions.
+
+**The two families take their span differently.** 8-1b/c/d draw exactly the
+epochs figure 8-1 draws — the same span, stopped at the same cap, no decimation
+and no markers — because what they add is the *sign*: the parent plots the
+magnitude of the 3-D error, which cannot carry one. 8-4b/c/d and 8-6b/c/d take a
+short *window* each instead, because their subject is invisible over a whole run:
+the Kalman filter settles inside its first few hundred epochs. A windowed figure
+decimates and draws a marker on every survivor, so the reader can see where the
+samples are. The window (in seconds after the run's first epoch), the cap 8-1
+stops at (in absolute sod) and the decimation are constants in
 `gnss_plot/figures.py`, deliberately not options: they were chosen by reading
 this dataset, and a flag would invite a figure whose caption no longer describes
-it. On a run shorter than the window they fall back to drawing the whole run,
-undecimated, say so on stdout, and drop the window from the title — a run that
-short would otherwise be drawn as empty panels.
+it. On a run shorter than the window the six windowed figures fall back to
+drawing the whole run, undecimated, say so on stdout, and drop the window from
+the title — a run that short would otherwise be drawn as empty panels. 8-1b/c/d
+have no fallback to make; they name their cap in both the title and the x label
+instead, since the run carries on past it.
 
 Reads existing `apps/rtk` output — it does not run the solver; use
 `gnss app rtk` for that. See [rtk.md](rtk.md) for the analysis.

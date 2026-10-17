@@ -43,7 +43,7 @@ __all__ = [
     "fig_rtk_ratio_hist",
     "fig_rtk_lsq_vs_kalman_ts",
     "fig_rtk_dd_cov_ratio_ts",
-    "fig_rtk_spp_vs_rtk_zoom_ts",
+    "fig_rtk_spp_vs_rtk_dir_ts",
     "fig_rtk_float_vs_fixed_zoom_ts",
     "fig_rtk_lsq_vs_kalman_zoom_ts",
 ]
@@ -67,14 +67,16 @@ C_SLIP = "#d62728"
 # red must not move a byte in chapter 8's figures.
 C_SPP, C_RTK = "#6e6e6e", "#d62728"
 
-# The zoomed siblings of figures 8-1, 8-4 and 8-6 use blue for the coarse
-# solution instead of the grey above. The reason is legibility, not meaning:
-# those figures are drawn at 3-100x the vertical zoom, where a grey line on
-# white is hard to follow, and on a short window the two series no longer read
-# as "a band and a line" but as two curves that have to be told apart. Same
-# grammar as C_SPP/C_RTK though - blue is still the coarse solution the eye
-# discounts, red still the one under discussion - so the legends are unchanged
-# and only the captions have to say which colour is which.
+# The nine directional siblings of figures 8-1, 8-4 and 8-6 use blue for the
+# coarse solution instead of the grey above. Same grammar as C_SPP/C_RTK -
+# blue is still the coarse solution the eye discounts, red still the one under
+# discussion - so the legends are unchanged and only the captions have to say
+# which colour is which. The reason is legibility, not meaning: 8-4b/c/d and
+# 8-6b/c/d are drawn at 3-100x the vertical zoom, where a grey line on white is
+# hard to follow and the two series no longer read as "a band and a line" but as
+# two curves that have to be told apart. 8-1b/c/d need no such help - they draw
+# the same span as their parent - and are blue only so that the nine read as one
+# set.
 #
 # Deliberately not C_E, which is a *blue* too: in this chapter C_E/C_N/C_U mean
 # east/north/up in one figure and the three constellations in another, so
@@ -866,6 +868,39 @@ def _break_gaps(sod, y):
     return y
 
 
+#: The absolute sod figure 8-1 stops drawing at - and the cap its three
+#: directional siblings stop at too. The run itself carries on to 32578; the
+#: tail is left out on request, not because the data ends there. Absolute clock
+#: time rather than an offset from the run's first epoch, the way the six
+#: figures that still take a *window* do (_ZOOM_WINDOW_8_4 and _ZOOM_WINDOW_8_6),
+#: because these four figures' own x axis is already in sod.
+#:
+#: **Only the drawn series is clipped.** The bias/sigma/RMS printed inside the
+#: panels keep coming from the `stats` the caller passes, so they still describe
+#: the whole 7934 epochs and still agree with the chapter's tables - that
+#: agreement is the reason those numbers are not recomputed here. The x label
+#: says where the axis stops, so the shorter curve cannot be read as a run that
+#: was shorter.
+_WINDOW_8_1_SOD_MAX = 31200.0
+
+
+def _in_8_1_span(sod, sod_max=_WINDOW_8_1_SOD_MAX):
+    """Which of one series' epochs figure 8-1 draws, as a mask over its sod.
+
+    One function rather than ``sod <= _WINDOW_8_1_SOD_MAX`` written out in four
+    places - figure 8-1 and figures 8-1b/c/d - because the siblings *are* 8-1
+    read one direction at a time. A reader comparing a sibling against its
+    parent is comparing two views of the same epochs, and a sibling that quietly
+    covered a different stretch would make that comparison a lie. A cap written
+    in four places is a cap that drifts apart.
+
+    `sod_max` is a parameter rather than the constant read directly so the
+    helper's contract is complete on its own, and so a test can pin the boundary
+    without reaching into the module's state.
+    """
+    return np.asarray(sod, dtype=float) <= float(sod_max)
+
+
 def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     """Figure 8-1: SPP and RTK 3-D deviation from the reference, per constellation.
 
@@ -919,18 +954,38 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     point. On this axis the resulting gap sits on the bottom edge and is a
     line-width wide, so the curve reads as continuous; keeping the rule means
     this panel and figures 8-4 and 8-6 treat a zero the same way.
+
+    The drawn series is clipped to ``_WINDOW_8_1_SOD_MAX``; the panel statistics
+    are not - they are the caller's, over the whole run. See that constant. The
+    three directional siblings (:func:`fig_rtk_spp_vs_rtk_dir_ts`) draw this
+    same set of epochs, through the same :func:`_in_8_1_span` - so "figure 8-1
+    read one direction at a time" is a fact about the two, not a caption's
+    promise.
     """
     modes = [(str(m[0]), np.asarray(m[1], dtype=float), m[2]) for m in modes]
+    # `n` is taken before the clip on purpose: it is the run's epoch count, and
+    # the panel numbers below - which are not clipped either - describe the same
+    # run.
     n = max((int(sod.size) for _l, sod, _s in modes), default=0)
+
+    # Clip what is drawn. `keep` indexes the stats' ENU arrays, which
+    # error_stats built from these same epochs, so it lines up with `sod` one
+    # for one - both get cut with the same index.
+    clipped = []
+    for label, sod, stats in modes:
+        keep = np.flatnonzero(_in_8_1_span(sod))
+        clipped.append((label, sod[keep], stats, keep))
+    modes = clipped
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
     fig.suptitle(t(lang, "title_rtk_spp", rover=rover or "-", n=n), fontsize=12)
 
-    for k, (ax, (label, sod, stats)) in enumerate(zip(axes, modes)):
+    for k, (ax, (label, sod, stats, keep)) in enumerate(zip(axes, modes)):
         notes = []
         for key, color, lkey in (("spp", C_SPP, "legend_spp"),
                                  ("rtk", C_RTK, "legend_rtk")):
-            e, nu, u = (np.asarray(a, dtype=float) for a in stats[key + "_enu"])
+            e, nu, u = (np.asarray(a, dtype=float)[keep]
+                        for a in stats[key + "_enu"])
             mag = np.sqrt(e ** 2 + nu ** 2 + u ** 2)
             mag = np.where(mag > 0.0, mag, np.nan)
             ax.plot(sod, _break_gaps(sod, mag), color=color, lw=0.7, alpha=0.9,
@@ -970,8 +1025,9 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     # carry - which constellation is worse - is on the panel as numbers.
     for ax in axes:
         ax.set_ylim(bottom=0.0)
-    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
-    _sod_axis(axes[-1], np.concatenate([s for _l, s, _s in modes])
+    axes[-1].set_xlabel(t(lang, "axis_sod_to", to="%d" % _WINDOW_8_1_SOD_MAX),
+                        fontsize=10)
+    _sod_axis(axes[-1], np.concatenate([s for _l, s, _s, _k in modes])
               if modes else np.asarray([], dtype=float))
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     return _finish(fig, out_png)
@@ -1444,39 +1500,48 @@ def fig_rtk_dd_cov_ratio_ts(panels, out_png, rover="", lang="en", threshold=3.0)
 
 
 # ---------------------------------------------------------------------------
-# the zoomed windows (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d)
+# the directional siblings (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d)
 # ---------------------------------------------------------------------------
 #
-# Figures 8-1, 8-4 and 8-6 each draw all 7934 epochs of the chapter's run - two
-# and a quarter hours of it - which is what lets the chapter's headline numbers
-# be read off one picture. The price is that the series under discussion is
-# squashed against the bottom edge: figure 8-6 exists to show the Kalman filter
-# settling, and it settles inside its first few hundred epochs, which over the
-# whole run is a pixel-wide sliver along the axis.
+# Figures 8-1, 8-4 and 8-6 each draw a whole series - for 8-1 all 7934 epochs of
+# the chapter's run, two and a quarter hours of it - which is what lets the
+# chapter's headline numbers be read off one picture. The three components of an
+# ENU error are folded into one magnitude or one shared axis there, though, and
+# that is what the siblings undo: **one direction per figure**, b/c/d standing
+# for east, north and up. **Each of the three has not one sibling but three**,
+# one per direction - nine figures in all.
 #
-# **Each of the three has not one zoomed sibling but three, one per direction.**
-# The sub-figures run 8-1b/c/d for east, north and up, and likewise 8-4 and 8-6:
-# nine in all. Splitting by direction is what makes the comparison legible
-# without splitting the two *series* apart. An earlier attempt gave each series
-# a lane of its own, one above the other, and was rejected outright: "the whole
-# point of a comparison figure is that both curves are in the same picture".
-# Two lanes on two scales cannot be read against each other at all, and the
-# distance between them - 12x to 40x, and a ratio of two things that do not
-# measure the same quantity - invites a reading the chapter spends a section
-# retracting. What actually makes a curve followable at this zoom is fewer
-# epochs, each one marked: the points are decimated and every one of them draws
-# its marker, so a reader sees where the samples are rather than a continuous
-# smear.
+# **Every panel still holds both series on one shared vertical axis**, and every
+# figure still holds one constellation per panel - three panels, GPS then BDS-2
+# then BDS-3. An earlier attempt gave each series a lane of its own, one above
+# the other, and was rejected outright: "the whole point of a comparison figure
+# is that both curves are in the same picture". Two lanes on two scales cannot
+# be read against each other at all, and the distance between them - 12x to 40x,
+# and a ratio of two things that do not measure the same quantity - invites a
+# reading the chapter spends a section retracting. What the direction split buys
+# instead is the y scale: an ENU triple spans an order of magnitude (BDS-2's
+# error is nearly all in U), so one figure holding all three components would
+# have to share one axis across ranges that differ that much. It also puts the
+# Kalman filter's convergence where a reader can find it - it is a vertical
+# phenomenon on this dataset, which is why 8-6b (east) shows nothing on BDS-2
+# while 8-6d (up) shows the whole transient.
 #
-# So every panel holds **both series on one shared vertical axis**, and the
-# figure holds **one constellation per panel** - three panels, GPS then BDS-2
-# then BDS-3. What the direction split buys is the y scale: an ENU triple spans
-# an order of magnitude (BDS-2's error is nearly all in U), so one figure
-# holding all three components would have to share one axis across ranges that
-# differ that much. Splitting by direction also puts the Kalman filter's
-# convergence where a reader can find it - it is a vertical phenomenon on this
-# dataset, which is why 8-6b (east) shows nothing on BDS-2 while 8-6d (up)
-# shows the whole transient.
+# **The two families take their span differently, and that is the one thing they
+# do not share.** 8-1b/c/d draw *the same epochs as their parent*, through the
+# parent's own ``_in_8_1_span``: they are figure 8-1 read one direction at a
+# time, and what they add is the *sign* - the parent plots the magnitude of the
+# 3-D error, which cannot carry one, and on this data the single-point solution's
+# vertical offset does turn over: several metres either side of zero, on every
+# constellation, while the RTK curve stays at centimetres.
+# 8-4b/c/d and 8-6b/c/d take a short *window*
+# instead, because their subject is invisible over a whole run: the Kalman filter
+# settles inside its first few hundred epochs, which over 7934 of them is a
+# pixel-wide sliver along the axis.
+#
+# A windowed family draws fewer epochs with a marker on every one of them, so a
+# reader sees where the samples are rather than a continuous smear. The
+# full-span family has no such need - a marker per point across 6556 points is
+# the smear - and keeps its parent's thin unmarked line.
 #
 # These are separate figures rather than a parameterisation of their parents
 # for the reason given beside ``_stacked_ts``: the parent figures' PNGs are
@@ -1484,34 +1549,32 @@ def fig_rtk_dd_cov_ratio_ts(panels, out_png, rover="", lang="en", threshold=3.0)
 # bodies is exactly the kind of change that moves a byte without moving the
 # picture.
 #
-# Nothing here re-runs the solver. The window is a slice of the outputs the
-# chapter already has. ``apps/rtk.cpp --stop`` would give the same numbers at
-# the same epochs - the Kalman filter is causal, so truncating the input is the
-# same as truncating the output - but it would cost a second run tree to say
-# what a slice of an array says for free.
+# Nothing here re-runs the solver. Both a window and 8-1's cap are slices of the
+# outputs the chapter already has. ``apps/rtk.cpp --stop`` would give the same
+# numbers at the same epochs - the Kalman filter is causal, so truncating the
+# input is the same as truncating the output - but it would cost a second run
+# tree to say what a slice of an array says for free.
 
-#: The directions the zoomed figures are drawn one at a time, in the order the
-#: sub-figure letters run: 8-1b/c/d are east, north and up. Public because the
-#: CLI names one output file per direction from it, and a second copy of these
-#: letters is a second thing to forget to change. `_ZOOM_LETTERS` is the
+#: The directions the directional figures are drawn one at a time, in the order
+#: the sub-figure letters run: 8-1b/c/d are east, north and up. Public because
+#: the CLI names one output file per direction from it, and a second copy of
+#: these letters is a second thing to forget to change. `_ZOOM_LETTERS` is the
 #: sub-figure letter, which is *not* the same as the direction's own letter
 #: here - "e" for east is 8-1**b** - and is easy to get wrong.
 ZOOM_DIRS = ("e", "n", "u")
 _ZOOM_LETTERS = ("b", "c", "d")
 
-#: Window and decimation for each family, as ``(from_s, to_s, every_nth)``
-#: seconds after the run's own first epoch. Chosen by reading this run, and
-#: constants rather than options: a flag would invite a figure whose caption no
-#: longer describes it.
+#: Window and decimation for the two families that take one, as
+#: ``(from_s, to_s, every_nth)`` seconds after the run's own first epoch. Chosen
+#: by reading this run, and constants rather than options: a flag would invite a
+#: figure whose caption no longer describes it. 8-1b/c/d are absent because they
+#: take no window - they draw their parent's own span, through ``_in_8_1_span``.
 #:
-#: 8-1 takes the second half, where the single-point solution's slow drift is
-#: steepest (+0.5 m to +4.3 m of vertical mean across it). 8-4 takes a longer
-#: middle stretch than the others so BDS-2's rejections show as repeated gaps
-#: rather than one cluster. 8-6 takes the opening, where the filter's transient
-#: lives - BDS-2, the slowest, has settled by about epoch 250, so the transient
-#: fills five eighths of the width and the settled state the rest, the settled
-#: part being the boring one.
-_ZOOM_WINDOW_8_1 = (5000.0, 8060.0, 25)
+#: 8-4 takes a longer middle stretch than 8-6 so BDS-2's rejections show as
+#: repeated gaps rather than one cluster. 8-6 takes the opening, where the
+#: filter's transient lives - BDS-2, the slowest, has settled by about epoch
+#: 250, so the transient fills five eighths of the width and the settled state
+#: the rest, the settled part being the boring one.
 _ZOOM_WINDOW_8_4 = (400.0, 2400.0, 16)
 _ZOOM_WINDOW_8_6 = (0.0, 400.0, 4)
 
@@ -1671,13 +1734,14 @@ def _fit_zoom_dir(ax, *series):
     ax.set_ylim(lo - 0.06 * span, lo + 1.50 * span)
 
 
-def _zoom_dir_panel(ax, sod_c, coarse, sod_f, focus, d, lang, names):
-    """One panel of a directional zoom: both series, one shared vertical axis.
+def _zoom_dir_panel(ax, sod_c, coarse, sod_f, focus, d, lang, names,
+                    marked=True):
+    """One panel of a directional figure: both series, one shared vertical axis.
 
     Blue is the coarse solution the eye should discount - SPP, the float
     solution, the single-epoch least squares - and red the one under discussion:
-    the parent figures' grammar, with the coarse series recoloured from grey,
-    which is hard to follow on white at this zoom.
+    the parent figures' grammar, with the coarse series recoloured from grey.
+    See `C_ZOOM_COARSE`.
 
     Each series brings its own time base, because 8-6's two come from separate
     runs; 8-1 and 8-4 pass the same array twice. Each also prints its own
@@ -1686,26 +1750,38 @@ def _zoom_dir_panel(ax, sod_c, coarse, sod_f, focus, d, lang, names):
     by 50-60x, as they do on BDS-2: there the finer curve is a flat line along
     the coarser one's foot. `focus` may hold NaN where a fixed solution was
     rejected, and those epochs are gaps here exactly as in the parent figure.
+
+    `marked` is the style of the two lines, and it is the one thing a windowed
+    family and 8-1's full-span family need told apart: a decimated curve needs a
+    marker on every survivor to be followable, and 8-1b/c/d - 6556 points, no
+    decimation - need the parent's thin unmarked line instead. `ms` is inert
+    without a marker, so only the format string and the width move.
     """
     ax.axhline(0.0, color=ZERO, lw=0.9, ls="--", zorder=1)
+    fmt = "-o" if marked else "-"
+    lw = 1.0 if marked else 0.7
     for sod, y, color, alpha, z, label in (
             (sod_c, coarse, C_ZOOM_COARSE, 0.90, 2, names[0]),
             (sod_f, focus, C_ZOOM_FOCUS, 0.95, 3, names[1])):
-        ax.plot(sod, _break_gaps(sod, y), "-o", color=color, lw=1.0, ms=3.4,
+        ax.plot(sod, _break_gaps(sod, y), fmt, color=color, lw=lw, ms=3.4,
                 alpha=alpha, zorder=z, label=label)
     ax.set_ylabel(t(lang, "axis_rtk_zoom_err",
                     dir=t(lang, "dir_" + d)), fontsize=9.5, color=INK)
     style_ax(ax)
 
 
-def _zoom_finish(fig, axes, lang, drawn, out_png):
+def _zoom_finish(fig, axes, lang, drawn, out_png, xlabel=None):
     """X ticks, the shared x label and the save - the tail all three share.
 
     The y labels are the panels' own business: every panel of a directional
     figure names the direction it is about, because a figure's three panels are
-    its three constellations, not its three directions.
+    its three constellations, not its three directions. `xlabel` is that same
+    business for the x axis: 8-1's family stops before the run does and has to
+    say where, while the six windowed figures draw a stretch the run really
+    contains and keep the plain label.
     """
-    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    axes[-1].set_xlabel(xlabel if xlabel is not None else t(lang, "axis_sod"),
+                        fontsize=10)
     flat = [a for a in drawn if a.size]
     _sod_axis(axes[-1], np.concatenate(flat) if flat
               else np.asarray([], dtype=float))
@@ -1719,9 +1795,9 @@ def _zoom_finish(fig, axes, lang, drawn, out_png):
     return _finish(fig, out_png)
 
 
-def _zoom_dir_figure(panels, out_png, rover, lang, d, window, title_key,
-                     fallback_fig, names):
-    """The body all three directional figures share: window, panels, finish.
+def _zoom_dir_figure(panels, out_png, rover, lang, d, title_key, names,
+                     window=None, fallback_fig=None, sod_max=None):
+    """The body all three directional families share: span, panels, finish.
 
     `panels` is one ``(label, sod_coarse, coarse, sod_focus, focus)`` per
     constellation, in the order they are drawn; `names` is the two legend
@@ -1729,17 +1805,44 @@ def _zoom_dir_figure(panels, out_png, rover, lang, d, window, title_key,
     pass the same ``sod`` twice; 8-6 passes two, because its two runs share an
     epoch grid by measurement rather than by contract.
 
-    The window, the fallback, the layout and the per-curve statistics are the
-    same in all three families - only their data, their titles and what the two
+    **Exactly one of `window` and `sod_max` has to be given, and which one it is
+    is the whole of what separates the two kinds of family.** `window` is a
+    stretch of the run, as ``(from_s, to_s, every_nth)`` seconds after the first
+    epoch - what 8-4b/c/d and 8-6b/c/d take: decimated, every drawn point
+    marked, falling back to the whole run (and saying so on stdout, against
+    `fallback_fig`) when the run is shorter than the window. `sod_max` is a cap
+    on **absolute** sod - what 8-1b/c/d take, so that they cover the epochs
+    figure 8-1 draws and no others: no decimation, no markers, no fallback (a
+    run shorter than the cap is simply a run wholly inside it), and both the
+    title and the x label name the cap, because a curve that stops before the
+    run does otherwise reads as a shorter run.
+
+    The layout, the shared axis and the per-curve statistics are the same in all
+    three families - only their data, their spans, their titles and what the two
     colours are called differ.
     """
-    sods = [s for p in panels for s in (p[1], p[3])]
-    picks, honoured = _zoom_indices(sods, window)
-    if not honoured:
-        _zoom_note(lang, fallback_fig, _zoom_epochs(sods),
-                   (window[0], window[1]))
+    if (window is None) == (sod_max is None):
+        raise ValueError("give exactly one of window= (a windowed family) or "
+                         "sod_max= (8-1's full-span family)")
 
-    # _zoom_indices walks its input in order, so the picks come back as one
+    sods = [s for p in panels for s in (p[1], p[3])]
+    if sod_max is None:
+        picks, honoured = _zoom_indices(sods, window)
+        if not honoured:
+            _zoom_note(lang, fallback_fig, _zoom_epochs(sods),
+                       (window[0], window[1]))
+        clause = _zoom_window_clause(lang, honoured, window)
+        xlabel, marked = None, True
+    else:
+        # `_in_8_1_span` and not `s <= sod_max` written out here: the parent
+        # figure clips through that same function, and these three are meant to
+        # be the parent read one direction at a time. See it for why.
+        picks = [np.flatnonzero(_in_8_1_span(s, sod_max)) for s in sods]
+        clause = t(lang, "zoom_win_span", to="%d" % int(sod_max))
+        xlabel = t(lang, "axis_sod_to", to="%d" % int(sod_max))
+        marked = False
+
+    # Both pickers walk their input in order, so the picks come back as one
     # (coarse, focus) pair per panel.
     pairs = list(zip(picks[0::2], picks[1::2]))
     drawn = [p[1][i] for p, (i, _j) in zip(panels, pairs)]
@@ -1747,14 +1850,13 @@ def _zoom_dir_figure(panels, out_png, rover, lang, d, window, title_key,
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
     fig.suptitle(t(lang, title_key, rover=rover or "-",
-                   dir=t(lang, "dir_" + d),
-                   win=_zoom_window_clause(lang, honoured, window),
+                   dir=t(lang, "dir_" + d), win=clause,
                    n=_zoom_epochs(drawn)), fontsize=12)
 
     for ax, (label, sod_c, coarse, sod_f, focus), (i, j) in zip(axes, panels,
                                                                 pairs):
         _zoom_dir_panel(ax, sod_c[i], coarse[i], sod_f[j], focus[j], d, lang,
-                        names)
+                        names, marked=marked)
         for frac, y, color, name in ((0.96, coarse[i], C_ZOOM_COARSE, names[0]),
                                      (0.78, focus[j], C_ZOOM_FOCUS, names[1])):
             ax.text(0.012, frac, "%s  %s" % (name, _zoom_stat(lang, y)),
@@ -1766,33 +1868,44 @@ def _zoom_dir_figure(panels, out_png, rover, lang, d, window, title_key,
         style_ax(ax)
 
     axes[0].legend(fontsize=9, loc="upper right", framealpha=0.9)
-    return _zoom_finish(fig, axes, lang, drawn, out_png)
+    return _zoom_finish(fig, axes, lang, drawn, out_png, xlabel=xlabel)
 
 
-def fig_rtk_spp_vs_rtk_zoom_ts(modes, out_png, rover="", lang="en",
-                               direction=0):
-    """Figures 8-1b/c/d: figure 8-1 over one window, one direction at a time.
+def fig_rtk_spp_vs_rtk_dir_ts(modes, out_png, rover="", lang="en", direction=0):
+    """Figures 8-1b/c/d: figure 8-1, one direction at a time.
 
     `modes` is figure 8-1's own input - ``(label, sod, stats)`` - and every
     number on the figure comes out of that same dict, so this figure and the
     tables cannot drift apart. `direction` is 0, 1 or 2 for east (8-1b), north
     (8-1c) and up (8-1d).
 
+    **The same epochs as the parent, not a window into them.** Every series is
+    drawn at every epoch figure 8-1 draws, through the parent's own
+    ``_in_8_1_span``. Drawing them over one short window was tried first and is
+    what this replaces: it made these three look like the six windowed siblings
+    of 8-4 and 8-6, when their job is the opposite one - they take the parent's
+    span and change only what is *read off* it.
+
     **Signed errors towards the reference, not distances from it.** A curve
     above the dashed zero line is north of the reference, not "0.4 m out". The
-    parent figure plots the magnitude of the whole 3-D error, which cannot carry
-    a sign at all; over this window the sign is what moves, because the
-    single-point solution's offset turns over as the arc goes by (its vertical
-    mean climbs from +0.5 m to +4.3 m across these 3060 s).
+    parent plots the magnitude of the whole 3-D error, which cannot carry a sign
+    at all, and the sign is the whole of what this figure adds - and it moves.
+    Over the span drawn here the single-point solution's vertical mean swings
+    across zero: GPS -1.4 m over the opening, -2.6 m around sod 28000 and
+    +2.1 m over the closing stretch; BDS-3 +1.1, -0.7, then +3.5. A U RMS of
+    2.18 / 10.99 / 2.14 m says none of that.
 
-    **The two series share one axis, decimated to every 25th epoch, each point
-    keeping its marker.** That is the whole reason this is a sibling rather than
-    its parent with a shorter x range: over 7934 epochs the RTK solution is a
-    flat line along the axis. The fix is fewer, marked points - not a second
-    axis, which was tried and rejected, because two lanes on two scales are no
-    comparison at all. The one thing a shared axis cannot carry is how far apart
-    the two are, 12-40x; each curve prints its own RMS in its own corner
-    instead, and the parent figure and section four's table keep the ratio.
+    **The two series share one axis, undecimated, both drawn as thin unmarked
+    lines** - the parent's own style, and the only one that reads at 6556 points
+    a series. What a shared axis cannot carry is how far apart the two are,
+    12-40x on this data; each curve prints its own bias/sigma/RMS in its own
+    corner instead, and the parent figure and section four's table keep the
+    ratio. Two lanes on two scales, one per series, were tried and rejected:
+    that is no comparison at all.
+
+    The x axis stops at 8-1's cap and the label says so - the run carries on
+    past it, and a curve that stopped short without saying so would read as a
+    shorter run.
     """
     modes = [(str(m[0]), np.asarray(m[1], dtype=float), m[2]) for m in modes]
     di = int(direction)
@@ -1801,9 +1914,9 @@ def fig_rtk_spp_vs_rtk_zoom_ts(modes, out_png, rover="", lang="en",
                np.asarray(stats["rtk_enu"], dtype=float)[di])
               for label, sod, stats in modes]
     return _zoom_dir_figure(
-        panels, out_png, rover, lang, d, _ZOOM_WINDOW_8_1,
-        "title_rtk_spp_zoom", "8-1" + _ZOOM_LETTERS[di],
-        (t(lang, "legend_spp"), t(lang, "legend_rtk")))
+        panels, out_png, rover, lang, d, "title_rtk_spp_zoom",
+        (t(lang, "legend_spp"), t(lang, "legend_rtk")),
+        sod_max=_WINDOW_8_1_SOD_MAX)
 
 
 def fig_rtk_float_vs_fixed_zoom_ts(series, out_png, rover="", lang="en",
@@ -1826,7 +1939,8 @@ def fig_rtk_float_vs_fixed_zoom_ts(series, out_png, rover="", lang="en",
     still too large for one axis, each curve prints its own RMS in its own
     corner.
 
-    The window is deliberately the widest of the three families (400-2400 s), so
+    The window is deliberately the widest of the two families that take one
+    (400-2400 s), so
     that BDS-2's rejections show as repeated gaps rather than a single cluster -
     which is a thing the parent cannot show either.
     """
@@ -1839,9 +1953,9 @@ def fig_rtk_float_vs_fixed_zoom_ts(series, out_png, rover="", lang="en",
         panels.append((str(label), sod, np.asarray(enu_f, dtype=float)[di], sod,
                        np.where(np.asarray(acc, dtype=bool), focus, np.nan)))
     return _zoom_dir_figure(
-        panels, out_png, rover, lang, d, _ZOOM_WINDOW_8_4,
-        "title_rtk_fix_zoom", "8-4" + _ZOOM_LETTERS[di],
-        (t(lang, "legend_float"), t(lang, "legend_fixed")))
+        panels, out_png, rover, lang, d, "title_rtk_fix_zoom",
+        (t(lang, "legend_float"), t(lang, "legend_fixed")),
+        window=_ZOOM_WINDOW_8_4, fallback_fig="8-4" + _ZOOM_LETTERS[di])
 
 
 def fig_rtk_lsq_vs_kalman_zoom_ts(panels, out_png, rover="", lang="en",
@@ -1880,7 +1994,7 @@ def fig_rtk_lsq_vs_kalman_zoom_ts(panels, out_png, rover="", lang="en",
                      np.asarray(sod_k, dtype=float),
                      np.asarray(enu_k, dtype=float)[di]))
     return _zoom_dir_figure(
-        rows, out_png, rover, lang, d, _ZOOM_WINDOW_8_6,
-        "title_rtk_kalman_zoom", "8-6" + _ZOOM_LETTERS[di],
-        (t(lang, "legend_lsq_float"), t(lang, "legend_kalman_float")))
+        rows, out_png, rover, lang, d, "title_rtk_kalman_zoom",
+        (t(lang, "legend_lsq_float"), t(lang, "legend_kalman_float")),
+        window=_ZOOM_WINDOW_8_6, fallback_fig="8-6" + _ZOOM_LETTERS[di])
 

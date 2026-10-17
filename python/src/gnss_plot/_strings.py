@@ -16,6 +16,12 @@ STRINGS: dict[str, dict[str, str]] = {
     "en": {
         # --- axis / figure labels ---
         "axis_sod": "Second of day [s]",
+        # The four figures that stop before their run does: figure 8-1 and its
+        # three directional siblings, which draw the same clipped span
+        # (figures._WINDOW_8_1_SOD_MAX). Their x label has to say where the axis
+        # stops, so that a short curve cannot be read as a short run; every
+        # other figure keeps the plain axis_sod above.
+        "axis_sod_to": "Second of day [s] (axis drawn to {to})",
         "axis_east_err": "East error [m]",
         "axis_north_err": "North error [m]",
         "axis_up_err": "Up error [m]",
@@ -218,14 +224,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_dd_cov": "{mode}: ratio median {m1} → {m2}  ·  above "
                             "threshold, independent {n1} · correlated {n2}",
 
-        # --- the zoomed windows (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d) ---
-        # Nine figures: 8-1, 8-4 and 8-6 each redrawn over one window, once per
-        # direction. {dir} is a direction's name, {win} the window as a clause,
-        # and {n} how many epochs are *drawn* - not what the window asked for,
-        # because a run too short to contain the window falls back to the whole
-        # series, and a title promising 3060 s of it while the axis carries two
-        # epochs would be the one lie the degraded path cannot afford. The
-        # fallback says so on stdout instead.
+        # --- the directional siblings (figures 8-1b/c/d, 8-4b/c/d, 8-6b/c/d) ---
+        # Nine figures: 8-1, 8-4 and 8-6 each redrawn one direction at a time.
+        # {dir} is a direction's name, {win} the span as a clause, and {n} how
+        # many epochs are *drawn* - not what the span asked for, because 8-4's
+        # and 8-6's six fall back to the whole series on a run too short to
+        # contain their window, and a title promising 3060 s of it while the axis
+        # carries two epochs would be the one lie the degraded path cannot
+        # afford. The fallback says so on stdout instead.
         #
         # Two lines, on purpose. All of that on one line runs wider than the
         # figure and is clipped at both ends - which is worse than long, because
@@ -242,6 +248,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "zoom_win": "window {lo}-{hi} s after the first epoch, every {step}th "
                     "epoch",
         "zoom_win_all": "the whole run",
+        # 8-1b/c/d's span as a clause, for the same purpose. Not a window, and
+        # not "the whole run" either - it is the whole of what figure 8-1 draws,
+        # which is *shorter* than the run, so the cap has to be named here
+        # exactly as it is on the x label (axis_sod_to).
+        "zoom_win_span": "figure 8-1's own span, to sod {to}",
         # The three directions, and the axis label every panel of one figure
         # carries - a figure's panels are its constellations, so all three
         # labels of one figure read the same.
@@ -357,6 +368,10 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "zh": {
         "axis_sod": "秒内时刻 sod [s]",
+        # 四张图用这条：图 8-1 和它那三张按方向拆开的孪生图，画的都是同一段截过尾的
+        # 区间（figures._WINDOW_8_1_SOD_MAX）。横轴标签必须说明截到哪，否则一段短
+        # 曲线会被读成一次短 run；其余图仍用上面不带截断的那条。
+        "axis_sod_to": "秒内时刻 sod [s]（横轴截至 {to}）",
         "axis_east_err": "东向误差 [m]",
         "axis_north_err": "北向误差 [m]",
         "axis_up_err": "天向误差 [m]",
@@ -509,11 +524,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_dd_cov": "{mode}: ratio 中位数 {m1} → {m2}  ·  过阈值："
                             "独立 {n1} · 相关 {n2} 个历元",
 
-        # --- 放大时间窗（图 8-1b/c/d、图 8-4b/c/d、图 8-6b/c/d）---
-        # 九张：8-1、8-4、8-6 各按方向重画一遍。{dir} 是方向名，{win} 是窗口那句话，
-        # {n} 是**绘出**了多少历元——不是窗口要了多少：run 短于窗口时会退回整段，标题若
-        # 仍写着"3060 s 的窗口"而横轴只有 2 个历元，那就是退化路径唯一不能容忍的谎。
-        # 退回时改由 stdout 说明。
+        # --- 按方向拆开的孪生图（图 8-1b/c/d、图 8-4b/c/d、图 8-6b/c/d）---
+        # 九张：8-1、8-4、8-6 各按方向重画一遍。{dir} 是方向名，{win} 是说明横轴范围的
+        # 那句话，{n} 是**绘出**了多少历元——不是范围要了多少：8-4/8-6 那六张在 run 短于
+        # 窗口时会退回整段，标题若仍写着"3060 s 的窗口"而横轴只有 2 个历元，那就是退化
+        # 路径唯一不能容忍的谎，退回时改由 stdout 说明。8-1 那三张没有窗口也没有回退，
+        # 它们的横轴就是父图画的那一段（见 zoom_win_span）。
         "title_rtk_spp_zoom": "SPP 与 RTK 的{dir}误差，每个星座一个面板"
                               "\n（{rover}，{win}，绘出 {n} 个历元）",
         "title_rtk_fix_zoom": "RTK 浮点解与固定解的{dir}误差，每个星座一个面板"
@@ -523,6 +539,10 @@ STRINGS: dict[str, dict[str, str]] = {
         # 窗口写成一句话，好让标题用它收尾。单列出来是因为整段回退时要用下面另一条。
         "zoom_win": "首历元后 {lo}-{hi} s，每 {step} 个历元取一点",
         "zoom_win_all": "整段",
+        # 8-1b/c/d 的横轴范围，同样为了收尾。既不是窗口、也不是"整段"：那正是图 8-1 画
+        # 出来的全部，而它比整个 run 短，所以这里必须点名截到哪，跟横轴标签（axis_sod_to）
+        # 说的是同一件事。
+        "zoom_win_span": "与图 8-1 同一段，截至 sod {to}",
         # 三个方向，以及同一张图每个面板都带的那条纵轴标签——一张图的面板是它的三个星座，
         # 所以同一张图的三条标签是同一句话。
         "dir_e": "东向",

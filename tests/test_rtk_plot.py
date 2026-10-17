@@ -526,10 +526,10 @@ def test_rtk_plot_writes_six_figures_and_they_are_deterministic():
             assert rc == 0
             got = sorted(os.listdir(png_dir))
             assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
-                           "vis_rtk_spp_vs_rtk_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+                           "vis_rtk_spp_vs_rtk_dir_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_u_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -558,10 +558,10 @@ def test_rtk_plot_writes_eleven_figures_when_the_run_was_fixed():
                            "vis_rtk_float_vs_fixed_zoom_n_ts.png",
                            "vis_rtk_float_vs_fixed_zoom_u_ts.png",
                            "vis_rtk_ratio_hist.png",
-                           "vis_rtk_spp_vs_rtk_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+                           "vis_rtk_spp_vs_rtk_dir_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_u_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -602,10 +602,10 @@ def test_rtk_plot_draws_figure_eight_six_and_it_is_deterministic():
                            "vis_rtk_lsq_vs_kalman_zoom_e_ts.png",
                            "vis_rtk_lsq_vs_kalman_zoom_n_ts.png",
                            "vis_rtk_lsq_vs_kalman_zoom_u_ts.png",
-                           "vis_rtk_spp_vs_rtk_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+                           "vis_rtk_spp_vs_rtk_dir_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_u_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -641,10 +641,10 @@ def test_rtk_plot_draws_figure_eight_seven_and_it_is_deterministic():
             assert got == ["vis_rtk_accuracy_bars.png",
                            "vis_rtk_dd_cov_ratio_ts.png",
                            "vis_rtk_error_enu_ts.png",
-                           "vis_rtk_spp_vs_rtk_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
-                           "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+                           "vis_rtk_spp_vs_rtk_dir_e_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_n_ts.png",
+                           "vis_rtk_spp_vs_rtk_dir_u_ts.png",
+                           "vis_rtk_spp_vs_rtk_ts.png"], got
             pngs.append([_sha(os.path.join(png_dir, n)) for n in got])
 
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
@@ -661,10 +661,10 @@ def test_rtk_plot_skips_the_fix_figures_on_request():
         got = sorted(os.listdir(png_dir))
 
     assert got == ["vis_rtk_accuracy_bars.png", "vis_rtk_error_enu_ts.png",
-                   "vis_rtk_spp_vs_rtk_ts.png",
-                   "vis_rtk_spp_vs_rtk_zoom_e_ts.png",
-                   "vis_rtk_spp_vs_rtk_zoom_n_ts.png",
-                   "vis_rtk_spp_vs_rtk_zoom_u_ts.png"], got
+                   "vis_rtk_spp_vs_rtk_dir_e_ts.png",
+                   "vis_rtk_spp_vs_rtk_dir_n_ts.png",
+                   "vis_rtk_spp_vs_rtk_dir_u_ts.png",
+                   "vis_rtk_spp_vs_rtk_ts.png"], got
 
 
 def test_comparison_table_gains_the_fixing_table_only_when_fixed():
@@ -699,18 +699,18 @@ def test_rtk_plot_accepts_explicit_output_paths():
 
 
 # --------------------------------------------------------------------------
-# the zoomed windows (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d)
+# the directional siblings (figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d)
 # --------------------------------------------------------------------------
 
-def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
+def test_windowed_figures_take_their_window_and_fall_back_on_a_short_run():
     """Both branches of the window rule, one of which no CLI test can reach.
 
     Every end-to-end test above drives a two-epoch synthetic run at sod
-    24517-24518, so a window 400-8060 s long is always *past the end of the
-    series* and every zoom figure takes the fallback branch there - drawn over
-    the whole run, which is the branch that must not raise. The other branch,
-    where the window is genuinely selected and the decimation applied, is the
-    one the chapter's own figures use and would otherwise be untested.
+    24517-24518, so a window 400-2400 s long is always *past the end of the
+    series* and every windowed figure takes the fallback branch there - drawn
+    over the whole run, which is the branch that must not raise. The other
+    branch, where the window is genuinely selected and the decimation applied,
+    is the one the chapter's own figures use and would otherwise be untested.
 
     Which branch ran is read from stdout rather than inferred from the picture:
     the fallback announces itself on exactly one line, and the honoured path is
@@ -719,11 +719,13 @@ def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
     a silent fallback would produce a legitimate-looking figure that no longer
     matches its caption.
 
-    All nine figures are driven, because they do not share a code path as
-    tightly as they share a look: the three families differ in what their two
-    series are and in which window they take, and a direction is an index into
-    an ENU triple - the one place an off-by-one would silently draw east and
-    label it north.
+    Figures 8-1b/c/d are driven elsewhere - by
+    `test_figure_8_1_siblings_draw_their_parents_clipped_span`, since they take
+    no window and have no fallback to test. The two families that do are driven
+    here together because they do not share a code path as tightly as they share
+    a look: they differ in what their two series are, and a direction is an
+    index into an ENU triple - the one place an off-by-one would silently draw
+    east and label it north.
     """
     import contextlib
     import io
@@ -737,20 +739,11 @@ def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
 
         # -- fallback: two epochs, every window past the end of them ---------
         sod_short = np.asarray([24517.0, 24518.0])
-        spp_short = ref + np.asarray([[1.0, 2.0, 3.0], [0.0, 0.0, 0.0]])
-        rtk_short = ref + np.asarray([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
-        short_stats = rtk.error_stats(sod_short, spp_short, rtk_short, REF)
 
         # -- honoured: a series long enough to contain every window ----------
-        # 9000 s, not 4000: 8-1's window ends 8060 s after the first epoch, so a
-        # shorter series would take the fallback branch in the one case that is
-        # supposed to prove the window is honoured.
         sod_long = 24517.0 + np.arange(9000.0)
         n = sod_long.size
         ramp = np.linspace(0.0, 1.0, n)
-        spp_long = ref + np.column_stack([2.0 * ramp, np.zeros(n), np.zeros(n)])
-        rtk_long = ref + np.column_stack([np.zeros(n), 0.2 * ramp, np.zeros(n)])
-        long_stats = rtk.error_stats(sod_long, spp_long, rtk_long, REF)
 
         # Figure 8-4's fixed series: a millimetre error on every epoch, always
         # accepted. Figure 8-6's two series: the filter's error is a tenth of
@@ -774,8 +767,6 @@ def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
                                      np.zeros(n)))),)
 
         cases = [
-            ("8-1", figures.fig_rtk_spp_vs_rtk_zoom_ts,
-             [("GPS", sod_short, short_stats)], [("GPS", sod_long, long_stats)]),
             ("8-4", figures.fig_rtk_float_vs_fixed_zoom_ts, fx_short, fx_long),
             ("8-6", figures.fig_rtk_lsq_vs_kalman_zoom_ts, kal_short, kal_long),
         ]
@@ -797,6 +788,68 @@ def test_zoom_figures_take_their_window_and_fall_back_on_a_short_run():
                         assert "note" in out, (tag, out)
                     else:
                         assert out == "", (tag, out)
+
+
+def test_figure_8_1_siblings_draw_their_parents_clipped_span():
+    """8-1b/c/d draw the epochs figure 8-1 draws - all of them, and no others.
+
+    Read off the picture rather than off the code. The figure is drawn twice
+    from two runs that differ only in the epochs *past* the cap, and the two
+    PNGs have to be byte-identical, which is what "the tail is not drawn" means
+    as an image; then drawn again from a run cut short of the cap, where the
+    PNGs have to differ, which is the other half of it - the boundary is where
+    the chapter's caption says it is and not somewhere earlier. Both together
+    bracket the cap without re-deriving an axis limit.
+
+    The cap is written out here as a literal on purpose. It is a decision about
+    *this dataset* - the single-point solution degrades badly across the last
+    1378 epochs, and the run's own end is not where the axis should end - so a
+    test that read `figures._WINDOW_8_1_SOD_MAX` would quietly follow the
+    constant wherever it went instead of failing when it moved.
+
+    Nothing is announced on stdout, in either direction: there is no window
+    here to fall back from, and a note would mean the figure had taken a path
+    this family does not have.
+    """
+    import contextlib
+    import io
+
+    cap = 31200.0
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ref = np.asarray(REF, dtype=float)
+        # 24517 to 33516: starts where the chapter's run starts and runs past
+        # the cap, so the tail is genuinely there to be dropped.
+        sod = 24517.0 + np.arange(9000.0)
+        n = sod.size
+        ramp = np.linspace(0.0, 1.0, n)
+        spp = ref + np.column_stack([2.0 * ramp, np.zeros(n), np.zeros(n)])
+        rtk_xyz = ref + np.column_stack([np.zeros(n), 0.2 * ramp, np.zeros(n)])
+        keep = int(np.count_nonzero(sod <= cap))
+        assert 0 < keep < n, "the fixture has to straddle the cap to test it"
+
+        def draw(tag, cut, direction=0):
+            """One figure over the first `cut` epochs, as a hash."""
+            stats = rtk.error_stats(sod[:cut], spp[:cut], rtk_xyz[:cut], REF)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                path = figures.fig_rtk_spp_vs_rtk_dir_ts(
+                    [("GPS", sod[:cut], stats)],
+                    os.path.join(tmp, "8-1%s.png" % tag), direction=direction)
+            assert buf.getvalue() == "", (tag, buf.getvalue())
+            assert path and os.path.isfile(path), tag
+            return _sha(path)
+
+        at_cap = draw("a", keep)       # everything the cap allows, and no tail
+        past_cap = draw("b", n)        # ... plus a tail that must change nothing
+        short = draw("c", keep - 500)  # a span that stops short of the cap
+        # Every direction, not just east: the cap applies to all three, and the
+        # direction is an index into an ENU triple.
+        at_cap_north = draw("n", keep, direction=1)
+
+    assert at_cap == past_cap, "epochs past the cap must not be drawn"
+    assert at_cap != short, "the cap must be drawn up to, not short of"
+    assert at_cap_north != at_cap, "the three directions are three pictures"
 
 
 # --------------------------------------------------------------------------

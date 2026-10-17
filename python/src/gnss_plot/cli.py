@@ -832,19 +832,22 @@ def cmd_rtk_plot(args) -> int:
             rover=rover, lang=lang),
     ]
 
-    # Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: the same three comparisons
-    # redrawn over one short window, once per direction, so the series under
-    # discussion is not squashed against the bottom edge by the coarse one. Nine
-    # figures, three per parent. They take the same data as their parents and
-    # ride the same gates, so `--no-figures`, `--no-fix-figures` and a missing
-    # `--kalman-out` suppress them exactly as they suppress the full-span
-    # versions. The window and the decimation are fixed in figures.py, not
-    # exposed as options: they were chosen by reading this run, and a flag would
-    # invite a figure whose caption no longer describes it.
+    # Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: the same three comparisons, one
+    # direction at a time. Nine figures, three per parent. 8-1b/c/d cover the
+    # very epochs figure 8-1 does, so that the parent's magnitude and these
+    # three's signed components are two readings of one span; the other six take
+    # a short window out of the run, so that the series under discussion is not
+    # squashed against the bottom edge by the coarse one. They take the same
+    # data as their parents and ride the same gates, so `--no-figures`,
+    # `--no-fix-figures` and a missing `--kalman-out` suppress them exactly as
+    # they suppress the full-span versions. The spans and the decimation are
+    # fixed in figures.py, not exposed as options: they were chosen by reading
+    # this run, and a flag would invite a figure whose caption no longer
+    # describes it.
     for d in range(len(figures.ZOOM_DIRS)):
-        figs.append(figures.fig_rtk_spp_vs_rtk_zoom_ts(
+        figs.append(figures.fig_rtk_spp_vs_rtk_dir_ts(
             [(r["label"], r["sod"], r["stats"]) for r in results],
-            os.path.join(png_dir, "vis_rtk_spp_vs_rtk_zoom_%s_ts.png"
+            os.path.join(png_dir, "vis_rtk_spp_vs_rtk_dir_%s_ts.png"
                          % figures.ZOOM_DIRS[d]),
             rover=rover, lang=lang, direction=d))
 

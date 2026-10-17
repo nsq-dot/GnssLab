@@ -14,24 +14,32 @@ Releases get their own section from here on.
 ### Added
 
 - **Figures 8-1b/c/d, 8-4b/c/d and 8-6b/c/d: figures 8-1, 8-4 and 8-6, each
-  redrawn over one short window, once per direction.** The chapter's full-span
-  figures carry 7934 epochs - two and a quarter hours - which is what lets the
-  headline numbers be read off one picture, but it also squashes the series
-  under discussion against the bottom edge. It is worst on 8-6, whose whole
-  subject is the Kalman filter settling: that happens inside the first few
-  hundred epochs and is a pixel wide on the full run. The nine siblings take
-  101-123 epochs out of the same outputs, decimated to every 4th, 16th or 25th
-  and drawn with a marker on every survivor (8-6b/c/d the opening 400 s, where
-  the transient lives; 8-4b/c/d a long mid-run stretch, so BDS-2's rejections
-  read as repeated gaps; 8-1b/c/d the second half, where the single-point
-  solution's drift is steepest). The coarse series turns blue in these nine
-  while the subject stays red, so each curve stays followable at this zoom; the
-  legends are unchanged and only the captions say which colour is which. **No
-  solver is re-run** - the window is a slice of the existing output, which
-  `--stop` would reproduce at the cost of a second run tree - and **no option
-  was added**: the windows and the decimation are constants in `figures.py`, and
-  each figure rides its parent's gate (`--no-figures`, `--no-fix-figures`,
-  `--kalman-out`).
+  redrawn one direction at a time.** The chapter's parent figures fold the three
+  components of an ENU error into one magnitude or one shared axis; the nine
+  siblings undo that split - **one direction per figure**, b/c/d standing for
+  east, north and up - so that the y scale can follow the component under
+  discussion. What each family then *draws* is its own business, and the two
+  differ. **8-1b/c/d draw exactly the epochs figure 8-1 draws** - the same run,
+  stopped at the same cap, undecimated, no markers; what they add is the *sign*,
+  which the parent's magnitude cannot carry (over the span drawn the
+  single-point solution's vertical mean swings several metres either side of
+  zero - GPS -2.6 m to +2.1 m, BDS-3 -0.7 m to +3.5 m), and the cap and the mask live
+  in `figures._in_8_1_span`, shared with the parent, so the four cannot drift
+  apart about which epochs the chapter is talking about. **8-4b/c/d and 8-6b/c/d
+  take a short window each instead**, because their subject is invisible over a
+  whole run: the Kalman filter settles inside its first few hundred epochs and is
+  a pixel wide on 7934 of them. Those six take 101-123 epochs out of the same
+  outputs, decimated to every 4th or 16th and drawn with a marker on every
+  survivor (8-6b/c/d the opening 400 s, where the transient lives; 8-4b/c/d a
+  long mid-run stretch, so BDS-2's rejections read as repeated gaps).
+
+  The coarse series turns blue in all nine while the subject stays red, so each
+  curve stays followable; the legends are unchanged and only the captions say
+  which colour is which. **No solver is re-run** - a window and a cap are both
+  slices of the existing output, which `--stop` would reproduce at the cost of a
+  second run tree - and **no option was added**: the windows, the cap and the
+  decimation are constants in `figures.py`, and each figure rides its parent's
+  gate (`--no-figures`, `--no-fix-figures`, `--kalman-out`).
 
   **Both series stay in the same panel on one shared axis; what is split is the
   direction.** An earlier revision of these figures gave each series a lane of
@@ -52,12 +60,13 @@ Releases get their own section from here on.
   all, while 8-6d shows the whole of it. The cause is geometry: BDS-2 is an IGSO
   constellation with the weakest vertical observability of the three.
 
-  A run shorter than the window falls back to drawing the whole series,
-  undecimated, says so on stdout, and drops the window from the title rather
-  than promising seconds its axis does not carry. Every one of the seven
-  existing full-span `vis_rtk_*.png` is byte-identical to before, and the five
-  exact filename assertions in `tests/test_rtk_plot.py` moved with the new
-  names.
+  The six windowed figures fall back to drawing the whole series, undecimated,
+  say so on stdout, and drop the window from the title rather than promising
+  seconds their axis does not carry; 8-1b/c/d have no fallback to make and name
+  their cap in the title and in the x label instead, since the run carries on
+  past it. Six of the seven full-span `vis_rtk_*.png` are byte-identical to
+  before - figure 8-1 itself is not, see Changed - and the exact filename
+  assertions in `tests/test_rtk_plot.py` moved with the new names.
 
 - **Chapter 8's exercise 3: the double differences now carry their covariance,
   and it changes almost nothing.** `differenceSat` weighted each double
@@ -156,6 +165,20 @@ Releases get their own section from here on.
   against the true one the correction helps, see Fixed.
 
 ### Changed
+
+- **Figure 8-1 stops drawing at sod 31200, 1378 epochs before its run ends.**
+  The tail is dropped on request, not because the data stops there: measured
+  against the chapter's reference, the single-point solution degrades badly
+  across it (3-D RMS 2.84 -> 4.54 m on GPS, 13.50 -> 16.48 m on BDS-2 and
+  3.12 -> 5.50 m on BDS-3, BDS-2 reaching 51 m). **Only the drawn series is
+  clipped.** The bias/sigma/RMS printed in the panels are still the caller's,
+  over all 7934 epochs, so they keep agreeing with the chapter's tables, and the
+  x label now says where the axis stops (`axis_sod_to`) so that a shorter curve
+  cannot be read as a shorter run. Figures 8-1b/c/d stop at the same cap through
+  the same helper, and are renamed `vis_rtk_spp_vs_rtk_dir_{e,n,u}_ts.png` from
+  `..._zoom_{e,n,u}_ts.png` - this release makes them draw their parent's whole
+  span, so they are no longer zooms, and a name that no longer describes the
+  figure is the defect this project's captions exist to avoid.
 
 - **Section four's runs now correct the troposphere and, for GPS, use precise
   orbits and clocks.** The SPP column becomes 2.844 / 13.502 / 3.124 m (from

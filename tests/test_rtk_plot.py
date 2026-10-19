@@ -567,6 +567,44 @@ def test_rtk_plot_writes_eleven_figures_when_the_run_was_fixed():
     assert pngs[0] == pngs[1], "the same input must produce the same bytes"
 
 
+def test_rtk_plot_draws_the_two_mixed_figures():
+    """Figures 8-8 and 8-9: the mixed solution signed, one direction per panel.
+
+    The mixed run is a `gpsbds` file, which `find_runs` excludes unless asked
+    for by mode; `--mixed-out`/`--mixed-weighted-out` are what ask. Figure 8-8
+    also needs the GPS-only and BDS-3-only runs from the ordinary tree, so both
+    are written here; BDS-2 is deliberately not required (its 1.1 m would
+    dominate the shared axis).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_run(tmp, mode="gps")
+        _write_run(tmp, mode="bds3")
+        default = os.path.join(tmp, "mixed-default")
+        _write_run(default, mode="gpsbds")
+        weighted = os.path.join(tmp, "mixed-weighted")
+        _write_run(weighted, mode="gpsbds",
+                   rtk_offsets=((0.0, 0.0, 0.0), (1.0, 1.0, 3.0)),
+                   spp_offsets=((1.0, 1.0, 3.0), (0.0, 0.0, 0.0)))
+
+        pngs = []
+        for run in ("a", "b"):
+            png_dir = os.path.join(tmp, "figs-mixed-" + run)
+            rc = cli.main(["rtk-plot", "--out-dir", tmp,
+                           "--mixed-out", default,
+                           "--mixed-weighted-out", weighted,
+                           "--png-dir", png_dir, "--lang", "en",
+                           "--ref-xyz=%.4f,%.4f,%.4f" % tuple(REF)])
+            assert rc == 0
+            got = sorted(os.listdir(png_dir))
+            assert "vis_rtk_mixed_vs_single_enu_ts.png" in got
+            assert "vis_rtk_mixed_weight_enu_ts.png" in got
+            pngs.append([_sha(os.path.join(png_dir, n)) for n in
+                         ("vis_rtk_mixed_vs_single_enu_ts.png",
+                          "vis_rtk_mixed_weight_enu_ts.png")])
+
+    assert pngs[0] == pngs[1], "the same input must produce the same bytes"
+
+
 def test_rtk_plot_draws_figure_eight_six_and_it_is_deterministic():
     """The estimator comparison, with the same byte-for-byte requirement.
 

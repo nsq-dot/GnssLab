@@ -956,6 +956,67 @@ def cmd_rtk_plot(args) -> int:
                 _warn("no constellation is in both trees with a manifest "
                       "naming a different double-difference weighting; figure "
                       "8-7 needs one run per constellation from each")
+
+    # Figures 8-8 and 8-9: the mixed GPS+BeiDou solution, signed, one direction
+    # per panel. They need no fixing flag and no sibling estimator: 8-8 compares
+    # the weighted mixed run with the GPS-only and BDS-3-only runs from the
+    # ordinary tree, and 8-9 compares the two mixed runs with each other. The
+    # mixed run is a `gpsbds` file, which find_runs excludes by default (MODES
+    # is the three single-system modes), so ask for it explicitly.
+    def load_mixed(dir_arg):
+        d = _resolve_out_dir(root, dir_arg)
+        if not os.path.isdir(d):
+            _warn(f"{dir_arg} does not exist; mixed-solution figures skipped")
+            return None
+        picked = rtk.select_runs(rtk.find_runs(d, modes=("gpsbds",)),
+                                 rover=rover, modes=("gpsbds",))
+        if not picked:
+            _warn(f"no <rover>_gpsbds_rtk_float.out under {d}")
+            return None
+        return rtk.load_run(picked[0], ref_xyz)
+
+    mixed_default = load_mixed(args.mixed_out) if args.mixed_out else None
+    mixed_weighted = (load_mixed(args.mixed_weighted_out)
+                      if args.mixed_weighted_out else None)
+
+    if mixed_weighted:
+        singles = {r["mode"]: r for r in results}
+        if "gps" in singles and "bds3" in singles:
+            series = [
+                (t(lang, "legend_single_gps"), singles["gps"]["sod"],
+                 singles["gps"]["stats"]["rtk_enu"],
+                 singles["gps"]["stats"]["rtk"]["rms_3d"], figures.C_E),
+                (t(lang, "legend_single_bds3"), singles["bds3"]["sod"],
+                 singles["bds3"]["stats"]["rtk_enu"],
+                 singles["bds3"]["stats"]["rtk"]["rms_3d"], figures.C_U),
+                (t(lang, "legend_mixed_weighted"), mixed_weighted["sod"],
+                 mixed_weighted["stats"]["rtk_enu"],
+                 mixed_weighted["stats"]["rtk"]["rms_3d"], figures.C_RTK),
+            ]
+            figs.append(figures.fig_rtk_mixed_signed_ts(
+                series,
+                os.path.join(png_dir, "vis_rtk_mixed_vs_single_enu_ts.png"),
+                rover=rover, lang=lang, title_key="title_rtk_mixed_vs_single"))
+        else:
+            _warn("figure 8-8 needs --sys gps and --sys bds3 in the "
+                  "single-system tree; it was skipped")
+
+    if mixed_default and mixed_weighted:
+        series = [
+            (t(lang, "legend_mixed_default"), mixed_default["sod"],
+             mixed_default["stats"]["rtk_enu"],
+             mixed_default["stats"]["rtk"]["rms_3d"], figures.C_SPP),
+            (t(lang, "legend_mixed_weighted"), mixed_weighted["sod"],
+             mixed_weighted["stats"]["rtk_enu"],
+             mixed_weighted["stats"]["rtk"]["rms_3d"], figures.C_RTK),
+        ]
+        figs.append(figures.fig_rtk_mixed_signed_ts(
+            series,
+            os.path.join(png_dir, "vis_rtk_mixed_weight_enu_ts.png"),
+            rover=rover, lang=lang, title_key="title_rtk_mixed_weight"))
+    elif args.mixed_out or args.mixed_weighted_out:
+        _warn("figure 8-9 needs both --mixed-out and --mixed-weighted-out; "
+              "it was skipped")
     print()
     print(t(lang, "saved_to", dir=png_dir))
     for f in figs:
@@ -1121,6 +1182,13 @@ def build_parser() -> argparse.ArgumentParser:
     rk.add_argument("--dd-cov-out", dest="dd_cov_out", metavar="DIR",
                     help="second output tree from a --dd-cov run, for figure "
                          "8-7 (chapter 8 exercise 3)")
+    rk.add_argument("--mixed-out", dest="mixed_out", metavar="DIR",
+                    help="output tree of a default --sys gpsbds run; with "
+                         "--mixed-weighted-out, draws figures 8-8 and 8-9")
+    rk.add_argument("--mixed-weighted-out", dest="mixed_weighted_out",
+                    metavar="DIR",
+                    help="output tree of a --sys gpsbds run with the code "
+                         "sigma factors set, for figures 8-8 and 8-9")
     rk.add_argument("--rover", help="rover basename (default: every rover found)")
     rk.add_argument("--sys", action="append", default=None,
                     choices=list(_RTK_MODES),

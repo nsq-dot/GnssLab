@@ -49,6 +49,19 @@ Releases get their own section from here on.
   fixtures, in CI) and `test_rtk_osb.py` (data-gated) lock the reader and the
   measured result.
 
+- **Two signed mixed-solution figures (8-8 and 8-9).** `gnss rtk-plot` gains
+  `--mixed-out` and `--mixed-weighted-out`: a `gpsbds` run is outside the
+  ordinary recursive discovery (which knows only gps/bds2/bds3), so the two
+  mixed trees are named explicitly. Both figures draw the solution as **signed
+  E/N/U components, one panel per direction**, because a 3-D magnitude is
+  non-negative by construction and cannot cross zero; the legends keep the 3-D
+  RMS the tables quote, and each panel carries its own directional RMS. Figure
+  8-8 compares the weighted mixed solution with GPS-only and BDS-3-only (3-D
+  RMS 0.062 / 0.177 / 0.079 m); figure 8-9 compares the default and weighted
+  mixed runs (0.0866 -> 0.0621 m, improving in all three directions). Both are
+  byte-identical across two generations and are asserted by
+  `tests/test_rtk_plot.py`.
+
 - **Per-system and per-orbital-family code weighting for the RTK solution.**
   Six multipliers (`codeSigmaFactorGPS/BD2/BD3` and `...GEO/IGSO/MEO`, also
   available as `--sigma-factor-*`) scale the linearizer's 0.3 m code sigma:

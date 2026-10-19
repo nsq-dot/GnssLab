@@ -224,6 +224,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "annot_rtk_dd_cov": "{mode}: ratio median {m1} → {m2}  ·  above "
                             "threshold, independent {n1} · correlated {n2}",
 
+        # --- the mixed solution (figures 8-8 and 8-9) ---
+        "title_rtk_mixed_vs_single": "GPS+BDS mixed vs the single-system "
+                                     "solutions, signed ENU error, one panel "
+                                     "per direction ({rover}, {n} epochs each)",
+        "title_rtk_mixed_weight": "GPS+BDS mixed float: default vs per-system/"
+                                  "family weighting, signed ENU error ({rover}, "
+                                  "{n} epochs)",
+        "legend_single_gps": "GPS only",
+        "legend_single_bds3": "BDS-3 only",
+        "legend_mixed_weighted": "mixed, weighted",
+        "legend_mixed_default": "mixed, default",
+        "legend_mixed_3d": "{label} (3-D RMS {rms:.3f} m)",
+
         # --- the directional siblings (figures 8-1b/c/d, 8-4b/c/d, 8-6b/c/d) ---
         # Nine figures: 8-1, 8-4 and 8-6 each redrawn one direction at a time.
         # {dir} is a direction's name, {win} the span as a clause, and {n} how
@@ -523,6 +536,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "legend_dd_cov": "双差按相关加权（Q_DD）",
         "annot_rtk_dd_cov": "{mode}: ratio 中位数 {m1} → {m2}  ·  过阈值："
                             "独立 {n1} · 相关 {n2} 个历元",
+
+        # --- 混解（图 8-8、8-9）---
+        "title_rtk_mixed_vs_single": "GPS+BDS 混解与单系统：带符号 ENU 误差，"
+                                     "每方向一个面板（{rover}，各 {n} 个历元）",
+        "title_rtk_mixed_weight": "GPS+BDS 混解浮点：默认 vs 按系统/类型定权，"
+                                  "带符号 ENU 误差（{rover}，{n} 个历元）",
+        "legend_single_gps": "GPS 单系统",
+        "legend_single_bds3": "北斗三号单系统",
+        "legend_mixed_weighted": "混解（定权）",
+        "legend_mixed_default": "混解（默认）",
+        "legend_mixed_3d": "{label}（三维 RMS {rms:.3f} m）",
 
         # --- 按方向拆开的孪生图（图 8-1b/c/d、图 8-4b/c/d、图 8-6b/c/d）---
         # 九张：8-1、8-4、8-6 各按方向重画一遍。{dir} 是方向名，{win} 是说明横轴范围的

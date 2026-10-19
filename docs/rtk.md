@@ -1345,9 +1345,32 @@ TRUE="-2267803.4464,5009342.4841,3220991.0095"
     --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-mixed/kalman
 ```
 
-`gnss rtk-plot` 的三星座图仍按 `gps / bds2 / bds3` 取 run，**不会**把 `gpsbds` 当成
-第四个星座；混解的数字以本节表格和 `_rtk_diag.csv` 为准。把它画成图需要另一套
-"单星座 vs 混解"的图，属于下一步的展示工作，不影响上面的结论。
+`gnss rtk-plot` 的三星座图仍按 `gps / bds2 / bds3` 取 run；`gpsbds` 要单独用
+`--mixed-out` 和 `--mixed-weighted-out` 指进来，见下面 12.5 的两张图。
+
+### 12.5 混解的可视化：两张带符号的图
+
+两张图都画**带符号的 E/N/U 分量**，不是三维模长 `|d|`——模长非负，不可能穿过
+零轴；每个方向一个面板，所以曲线会落在零线两侧。图例里括注的才是表格用的三维
+RMS，面板内左上角是**该方向**的 RMS（相对参考坐标，不是去均值后的 σ）。
+
+![混解与单系统](figures/vis_rtk_mixed_vs_single_enu_ts.png)
+
+**图 8-8**　GPS+BDS 混解（定权）与 GPS 单系统、北斗三号单系统的带符号 ENU 误差，
+每个方向一个面板（上起东向、北向、天顶），全段 7934 个历元。三条曲线共用每个
+面板的纵轴，零线是虚线。混解在**三个方向上都最低**：东向 RMS 0.021 m（GPS
+0.048、北斗三号 0.026），北向 0.019 m（0.039、0.023），天顶 0.055 m（0.166、
+0.071）；三维 RMS **0.062 / 0.177 / 0.079 m**。北斗二号单系统没有画：它的浮点
+RMS 是 1.126 m，放进来会把另外两条压到贴轴，本节表格里仍有它。图 8-8 用的是
+**定权**混解，因为它是本节推荐的最终配置；默认混解与它的差别见图 8-9。
+
+![默认与定权混解](figures/vis_rtk_mixed_weight_enu_ts.png)
+
+**图 8-9**　同一个混解在**默认**与**按系统/类型定权**下的带符号 ENU 误差，同样是
+三个方向、全段 7934 个历元。灰 = 默认（三维 RMS 0.0866 m），红 = 定权
+（0.0621 m）。定权在三个方向上都降低了 RMS：东向 0.030 → 0.021 m、北向
+0.024 → 0.019 m、天顶 0.078 → 0.055 m，不是只压了某一个方向。曲线本身是原始的
+带符号误差，没有做任何去均值或缩放；零线是虚线，带宽越窄就是越贴近参考。
 
 **2026-10-19 补：混解没有换成 OSB 配置，换了也不会改善。** `gpsbds` 的结论都在双差上
 （浮点/固定、定权、配额），而卫星偏置在双差里抵消。同一组输入加不加
@@ -1492,10 +1515,14 @@ python tests/test_rtk_osb.py
 # --ref-xyz 是必须的：不给它，参考坐标就退回基准站表头（那个偏了 24.9 m 的值），图和表都对不上。
 # 1) 先生成第四节/图 8-1 家族（四张 vis_rtk_spp_vs_rtk* 是这一段的输出）：
 gnss rtk-plot --out-dir output/rtk-osb/full --ref-xyz="$TRUE" --lang zh --png-dir /tmp/figs-osb
-# 2) 再生成其余图（图 8-2…8-7）。这一步也会写 8-1 家族，用树 1b 的版本，
+# 2) 再生成其余图（图 8-2…8-9）。这一步也会写 8-1 家族，用树 1b 的版本，
 #    所以不要把它的 8-1 四张图覆盖到 docs/figures/——仓库里的那四张来自第 1 步。
+#    图 8-8/8-9 需要 §12 的混解树（默认与定权），命令见第十二节。
 gnss rtk-plot --out-dir output/rtk/full --kalman-out output/rtk-kalman/full \
-              --dd-cov-out output/rtk-ddcov/full --ref-xyz="$TRUE" --lang zh --png-dir /tmp/figs-rtk
+              --dd-cov-out output/rtk-ddcov/full \
+              --mixed-out output/rtk-mixed/all \
+              --mixed-weighted-out output/rtk-mixed/weighted \
+              --ref-xyz="$TRUE" --lang zh --png-dir /tmp/figs-rtk
 # 控制台打印的 SPP/RTK 表以树的 --out-dir 为准；两张表各自的 SPP 列不同（树 1a 是 OSB 后的）。
 ```
 

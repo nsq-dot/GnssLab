@@ -155,7 +155,8 @@ PYTHONPATH=python/src python -m gnss_plot.cli cs-plot --lang zh --series sample-
 
 ```
 gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--kalman-out DIR]
-              [--dd-cov-out DIR] [--rover NAME] [--sys gps|bds2|bds3 ...]
+              [--dd-cov-out DIR] [--mixed-out DIR] [--mixed-weighted-out DIR]
+              [--rover NAME] [--sys gps|bds2|bds3 ...]
               [--base-obs FILE] [--ref-xyz X,Y,Z] [--png-dir DIR]
               [--no-figures] [--lang en|zh]
 ```
@@ -163,6 +164,13 @@ gnss rtk-plot [--out-dir DIR] [--rtk-out FILE ...] [--kalman-out DIR]
 Plots the chapter-8 RTK float solution: SPP against RTK as a 3-D error time
 series with one panel per constellation, the ENU error time series with the three
 constellations overlaid, and the accuracy comparison as a grouped bar chart.
+
+`--mixed-out` (a default `--sys gpsbds` run) and `--mixed-weighted-out` (the
+same mode with `--sigma-factor-*`) add figures 8-8 and 8-9: **signed** E/N/U
+errors, one direction per panel. 8-8 compares the weighted mixed solution with
+the GPS-only and BDS-3-only runs from `--out-dir`; 8-9 compares the default and
+weighted mixed runs. A `gpsbds` run is not found by the ordinary recursive
+search, which is why these take explicit directories.
 
 **That first figure draws both series raw**, so its axis is a *deviation from
 the reference coordinate* and each panel annotates the offset alongside the RMS.

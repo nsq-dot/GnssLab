@@ -43,6 +43,7 @@ __all__ = [
     "fig_rtk_ratio_hist",
     "fig_rtk_lsq_vs_kalman_ts",
     "fig_rtk_dd_cov_ratio_ts",
+    "fig_rtk_mixed_signed_ts",
     "fig_rtk_spp_vs_rtk_dir_ts",
     "fig_rtk_float_vs_fixed_zoom_ts",
     "fig_rtk_lsq_vs_kalman_zoom_ts",
@@ -1493,6 +1494,86 @@ def fig_rtk_dd_cov_ratio_ts(panels, out_png, rover="", lang="en", threshold=3.0)
     axes[1].set_ylabel(t(lang, "axis_rtk_ratio"), fontsize=10)
     axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
     sods = [s for _l, s_i, _a, s_c, _b in panels for s in (s_i, s_c)]
+    _sod_axis(axes[-1], np.concatenate(sods) if sods
+              else np.asarray([], dtype=float))
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    return _finish(fig, out_png)
+
+
+def fig_rtk_mixed_signed_ts(series, out_png, rover="", lang="en",
+                            title_key=""):
+    """Figures 8-8 and 8-9: the mixed solution's error, signed, one direction
+    per panel.
+
+    `series` is a sequence of ``(label, sod, enu, rms_3d, color)``, where `enu`
+    holds the three signed components and `rms_3d` is the three-dimensional RMS
+    the chapter's tables quote. The first caller compares the weighted mixed
+    solution with the GPS-only and BDS-3-only ones (figure 8-8); the second
+    compares the mixed default with the weighted mixed (figure 8-9).
+
+    **Why not a 3-D magnitude.** |d| = sqrt(E^2+N^2+U^2) is non-negative by
+    definition, so it cannot cross zero and cannot show which side an error lies
+    on. Every point here is a signed component: above the zero line is east /
+    north / up of the reference. The price is that the three directions have
+    different ranges - on this run the vertical is 2-3 times the horizontal - so
+    they get one panel each rather than one shared axis. That is the same split
+    the 8-1/8-4/8-6 directional siblings use, for the same reason.
+
+    The legend carries each series' **3-D RMS**, because that is what the
+    tables and the section's conclusions are stated in; the text inside each
+    panel carries the **directional RMS**, because that is what the panel shows.
+    Neither is the bias: the signed curves are raw, and a reader who wants the
+    mean offset can see it in the curve's position relative to the zero line.
+
+    BDS-2-only is deliberately absent from figure 8-8: its float RMS is 1.1 m,
+    an order of magnitude above the other two, and putting it on the same axis
+    would press the comparison this figure exists for into the bottom edge. The
+    section's table still carries it.
+    """
+    rows = []
+    for label, sod, enu, rms_3d, color in series:
+        e = np.asarray(enu, dtype=float)
+        if e.shape[0] != 3:
+            raise ValueError("enu must hold three components (E, N, U)")
+        rows.append((str(label), np.asarray(sod, dtype=float), e,
+                     float(rms_3d), color))
+    n = max((int(sod.size) for _l, sod, _e, _r, _c in rows), default=0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9.6), sharex=True)
+    fig.suptitle(t(lang, title_key, rover=rover or "-", n=n), fontsize=12)
+
+    ykeys = ("axis_east_err", "axis_north_err", "axis_up_err")
+    dirs = ("dir_e", "dir_n", "dir_u")
+    for d, ax in enumerate(axes):
+        values = []
+        lines = []
+        for label, sod, enu, rms_3d, color in rows:
+            y = enu[d]
+            values.append(y)
+            ax.plot(sod, _break_gaps(sod, y), color=color, lw=0.7, alpha=0.9,
+                    zorder=2,
+                    label=(t(lang, "legend_mixed_3d", label=label, rms=rms_3d)
+                           if d == 0 else None))
+            lines.append("%s  %.3f m" % (label, float(np.sqrt(np.nanmean(y ** 2)))))
+        ax.axhline(0.0, color=ZERO, lw=0.9, ls="--", zorder=1)
+
+        finite = np.concatenate([np.abs(v[np.isfinite(v)]) for v in values])
+        lim = float(np.max(finite)) * 1.08 if finite.size else 1.0
+        lim = max(lim, 1e-3)
+        ax.set_ylim(-lim, lim)
+
+        ax.text(0.01, 0.97, "\n".join(lines), transform=ax.transAxes, va="top",
+                fontsize=8, color=INK,
+                bbox=dict(facecolor="white", alpha=0.82, edgecolor="none",
+                          pad=2.0))
+        ax.set_title(t(lang, dirs[d]), loc="left", fontsize=10, color=INK)
+        ax.set_ylabel(t(lang, ykeys[d]), fontsize=10)
+        if d == 0:
+            ax.legend(fontsize=8.5, loc="upper right", framealpha=0.9)
+        style_ax(ax)
+
+    axes[-1].set_xlabel(t(lang, "axis_sod"), fontsize=10)
+    sods = [sod for _l, sod, _e, _r, _c in rows]
     _sod_axis(axes[-1], np.concatenate(sods) if sods
               else np.asarray([], dtype=float))
     fig.tight_layout(rect=[0, 0, 1, 0.95])

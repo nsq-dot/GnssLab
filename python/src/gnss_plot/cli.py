@@ -38,6 +38,7 @@ __all__ = ["main"]
 AUX_APPS = {
     "bds-eph": "bds_eph",
     "bds-gps-diff": "bds_gps_diff",
+    "sinex-bias": "sinex_bias",
     "read-rinex": "read_rinex",
     "system-bias": "system_bias",
     "cs-detect-mw": "cs_detect_mw",

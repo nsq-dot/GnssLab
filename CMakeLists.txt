@@ -58,6 +58,7 @@ add_library(gnss STATIC
         src/SPPIFCode.cpp
         src/SPPUCCodePhase.cpp
         src/SPPVelocity.cpp
+        src/SinexBiasStore.cpp
         src/SolverKalman.cpp
         src/SolverLSQ.cpp
         src/TimeConvert.cpp
@@ -96,6 +97,7 @@ set(GNSS_APPS
         read_rinex        # RINEX inventory and per-constellation statistics
         bds_eph           # broadcast vs precise ephemeris, single satellite
         bds_gps_diff      # broadcast vs precise orbit/clock, full constellation
+        sinex_bias        # Bias-SINEX/OSB inspector
         cs_detect_mw      # Melbourne-Wübbena cycle-slip detection
         cs_detect_gf      # geometry-free cycle-slip detection (diff + polynomial)
         rtk               # RTK relative positioning: least squares or Kalman

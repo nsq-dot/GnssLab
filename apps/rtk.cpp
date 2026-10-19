@@ -120,6 +120,7 @@
 #include "GnssFunc.h"
 #include "RinexNavStore.hpp"
 #include "SP3Store.hpp"
+#include "SinexBiasStore.hpp"
 #include "CarrierSmoother.h"
 #include "RinexObsReader.h"
 #include "SPPUCCodePhase.h"
@@ -182,6 +183,15 @@ void printUsage(const char *prog) {
          "                     the broadcast ephemeris. Both are required together;\n"
          "                     the products are not relativity-corrected, so the\n"
          "                     solver adds that term as it does for broadcast\n"
+         "  --osb <file>       SINEX-BIAS/OSB file of per-signal code biases.\n"
+         "                     Requires --sp3 and --clk: a bias product is defined\n"
+         "                     against one analysis center's clock datum. Use the\n"
+         "                     orbit, clock and bias files of the same center and\n"
+         "                     day. Corrects the code observations of both\n"
+         "                     single-point solves, so it moves spp:. A satellite\n"
+         "                     bias cancels in the double difference, so rtk: and\n"
+         "                     the fix decisions stay put apart from the changed\n"
+         "                     linearization point\n"
          "  --smooth <N>       Hatch-smooth the code with its carrier before the\n"
          "                     single-point solves, window N epochs (0 = off, the\n"
          "                     default). Moves the spp: column, and the rtk: one\n"
@@ -608,6 +618,9 @@ int main(int argc, char *argv[]) {
     // what the broadcast ephemeris was costing the spp: column.
     string optSp3;
     string optClk;
+    // Optional SINEX-BIAS/OSB file. It is tied to the precise clock datum, so
+    // it is only accepted together with --sp3 and --clk.
+    string optOsb;
     // Hatch carrier-smoothing window in epochs; 0 leaves the code raw, which
     // is what every byte-anchored run in this chapter used.
     int optSmooth = 0;
@@ -667,6 +680,7 @@ int main(int argc, char *argv[]) {
         else if (a == "--dump-epoch") optDumpSod = std::stod(needValue("--dump-epoch"));
         else if (a == "--sp3")        optSp3 = needValue("--sp3");
         else if (a == "--clk")        optClk = needValue("--clk");
+        else if (a == "--osb")        optOsb = needValue("--osb");
         else if (a == "--smooth")     optSmooth = std::stoi(needValue("--smooth"));
         else if (a == "--base-xyz")   optBaseXyz = needValue("--base-xyz");
         else if (a == "--est-trop")   optEstTrop = true;
@@ -737,6 +751,7 @@ int main(int argc, char *argv[]) {
     if (!optBaseObs.empty()) cfg.baseObsFile = optBaseObs;
     if (!optNav.empty())     cfg.navFile = optNav;
     if (!optOutDir.empty())  cfg.outDir = optOutDir;
+    if (!optOsb.empty())     cfg.osbFile = optOsb;
     if (!optStop.empty())    cfg.stopUTC = optStop;
     if (!optSys.empty())     cfg.sys = optSys;
     if (optIsb)              cfg.estimateISB = true;
@@ -751,6 +766,14 @@ int main(int argc, char *argv[]) {
     if (optSigmaIGSO > 0) cfg.codeSigmaFactorIGSO = optSigmaIGSO;
     if (optSigmaMEO  > 0) cfg.codeSigmaFactorMEO  = optSigmaMEO;
     if (!optEstimator.empty()) cfg.estimator = optEstimator;
+    if (!cfg.osbFile.empty() && (optSp3.empty() || optClk.empty())) {
+        cerr << "Error: an OSB file (--osb or osbFile) requires both --sp3 and --clk\n"
+             << "       An OSB is defined relative to one analysis center's\n"
+             << "       precise clock datum; against a broadcast clock it would\n"
+             << "       corrupt rather than correct the observations.\n";
+        return 2;
+    }
+
     if (cfg.estimator != "lsq" && cfg.estimator != "kalman") {
         cerr << "Error: estimator must be 'lsq' or 'kalman', got '"
              << cfg.estimator << "'\n";
@@ -852,6 +875,7 @@ int main(int argc, char *argv[]) {
     string baseFile  = optBaseObs.empty() ? resolvePath(projectRoot, cfg.baseObsFile) : cfg.baseObsFile;
     string navFile   = optNav.empty()     ? resolvePath(projectRoot, cfg.navFile)     : cfg.navFile;
     string outDir    = optOutDir.empty()  ? resolvePath(projectRoot, cfg.outDir)      : cfg.outDir;
+    string osbFile   = optOsb.empty()     ? resolvePath(projectRoot, cfg.osbFile)     : cfg.osbFile;
 
     if (optVerbose) {
         cout << "config    : " << (configDir.empty() ? "(defaults)" : configFile) << "\n";
@@ -859,6 +883,7 @@ int main(int argc, char *argv[]) {
         cout << "base      : " << baseFile << "\n";
         cout << "nav       : " << navFile << "\n";
         cout << "outDir    : " << outDir << "\n";
+        cout << "osb       : " << (osbFile.empty() ? "(none)" : osbFile) << "\n";
         cout << "sys       : " << mode.key << "  " << mode.label << "\n";
         cout << "stop      : " << (cfg.stopUTC.empty() ? "(end of file)" : cfg.stopUTC) << "\n";
         cout << "cutOff    : " << cfg.cutOffElevation << " deg\n";
@@ -982,12 +1007,87 @@ int main(int argc, char *argv[]) {
              << "  clk : " << optClk << "\n";
     }
 
+    // Per-signal code biases. They are only accepted with precise products
+    // (checked above), and they must come from the same analysis center and day
+    // as those products: the OSB values are referred to that center's clock
+    // datum. The coverage check below is what catches the GFZ MGEX OSB file,
+    // which carries C2I/C6I for BeiDou but neither C7I nor C5P - the two signals
+    // the BeiDou modes actually observe.
+    SinexBiasStore osbStore;
+    const bool haveOsb = !osbFile.empty();
+    if (haveOsb) {
+        try {
+            osbStore.loadFile(osbFile);
+        } catch (const std::exception &e) {
+            cerr << "Error: cannot load SINEX-BIAS/OSB file: " << osbFile << "\n"
+                 << "       " << e.what() << "\n";
+            return 1;
+        }
+
+        std::vector<string> missing;
+        for (const auto &sysTypes : mode.rawTypesBySystem) {
+            for (const string &type : sysTypes.second) {
+                if (type.empty() || type[0] != 'C') continue;
+                if (!osbStore.hasObsType(sysTypes.first, type))
+                    missing.push_back(sysTypes.first + " " + type);
+            }
+        }
+        if (!missing.empty()) {
+            cerr << "Error: the OSB file does not cover the code signals of --sys "
+                 << mode.key << ":";
+            for (const string &m : missing) cerr << " " << m;
+            cerr << "\n       Use an orbit/clock/bias set from the same analysis\n"
+                 << "       center and the same day. GFZ's MGEX OSB file, for one,\n"
+                 << "       has no BeiDou C7I or C5P records.\n";
+            return 1;
+        }
+
+        // A heuristic, not a validation: the product filenames start with the
+        // analysis center's three-letter code (WUM, GBM, COD...). Mixing them is
+        // the failure mode this option is easiest to get wrong, so say so.
+        auto acPrefix = [](const string &path) -> string {
+            if (path.empty()) return string();
+            string name = fileNameOf(path);
+            for (char &c : name) c = static_cast<char>(std::toupper(
+                    static_cast<unsigned char>(c)));
+            return name.size() >= 3 ? name.substr(0, 3) : name;
+        };
+        const string acSp3 = acPrefix(optSp3);
+        const string acClk = acPrefix(optClk);
+        const string acOsb = acPrefix(osbFile);
+        if (acSp3 != acClk || acSp3 != acOsb) {
+            cerr << "Warning: --sp3 (" << acSp3 << "), --clk (" << acClk
+                 << ") and --osb (" << acOsb
+                 << ") look like different analysis centers. The bias file is\n"
+                 << "         tied to its own center's clock datum; mixing them\n"
+                 << "         usually makes the result worse, not better.\n";
+        }
+        if (cfg.enableBDSTGD) {
+            cout << "  note: --bds-tgd is ignored while an OSB file is in use;\n"
+                 << "        the OSB corrects to the precise clock datum instead\n";
+        }
+
+        cout << "osb        : " << osbFile << "\n"
+             << "  mode " << osbStore.getBiasMode()
+             << ", time system " << osbStore.getTimeSystemCode()
+             << ", " << osbStore.getCodeIntervalCount() << " code intervals, "
+             << osbStore.getSatelliteCount() << " satellites\n";
+        const auto &clockRefs = osbStore.getClockReferences();
+        const auto itC = clockRefs.find("C");
+        if (itC != clockRefs.end() && !itC->second.empty()) {
+            cout << "  clock ref C :";
+            for (const string &t : itC->second) cout << " " << t;
+            cout << "\n";
+        }
+    }
+
     SPPUCCodePhase sppRover;
     if (!optSp3.empty()) {
         sppRover.setEphStore(&sp3Store);
     } else {
         sppRover.setRinexNavStore(&navStore);
     }
+    if (haveOsb) sppRover.setBiasStore(&osbStore);
     sppRover.setDualCodeTypes(dualCodeTypes);
     sppRover.setCutOffElev(cfg.cutOffElevation);
     sppRover.setEstimateISB(cfg.estimateISB);
@@ -1005,6 +1105,9 @@ int main(int argc, char *argv[]) {
     } else {
         sppBase.setRinexNavStore(&navStore);
     }
+    // The same biases on both receivers. Station differencing cancels them, and
+    // that cancellation is exactly why the rtk: column must not move.
+    if (haveOsb) sppBase.setBiasStore(&osbStore);
     sppBase.setStationAsBase();
     sppBase.setDualCodeTypes(dualCodeTypes);
     sppBase.setCutOffElev(cfg.cutOffElevation);
@@ -1609,6 +1712,27 @@ int main(int argc, char *argv[]) {
         mf << "  \"roverObs\": \"" << jsonEscape(roverFile) << "\",\n";
         mf << "  \"baseObs\": \"" << jsonEscape(baseFile) << "\",\n";
         mf << "  \"nav\": \"" << jsonEscape(navFile) << "\",\n";
+        // The precise products and their bias file decide the spp: column and
+        // were never recorded before. An empty string means "not used".
+        mf << "  \"sp3\": \"" << jsonEscape(optSp3) << "\",\n";
+        mf << "  \"clk\": \"" << jsonEscape(optClk) << "\",\n";
+        mf << "  \"osb\": \"" << jsonEscape(haveOsb ? osbFile : string()) << "\",\n";
+        mf << "  \"osbMode\": \""
+           << jsonEscape(haveOsb ? osbStore.getBiasMode() : string()) << "\",\n";
+        mf << "  \"osbTimeSystem\": \""
+           << jsonEscape(haveOsb ? osbStore.getTimeSystemCode() : string()) << "\",\n";
+        mf << "  \"osbCodeIntervals\": "
+           << (haveOsb ? osbStore.getCodeIntervalCount() : 0) << ",\n";
+        mf << "  \"osbSatellites\": "
+           << (haveOsb ? osbStore.getSatelliteCount() : 0) << ",\n";
+        mf << "  \"osbSkippedDsb\": "
+           << (haveOsb ? osbStore.getDsbRecordCount() : 0) << ",\n";
+        mf << "  \"osbSkippedStation\": "
+           << (haveOsb ? osbStore.getStationRecordCount() : 0) << ",\n";
+        mf << "  \"osbCodeCorrections\": "
+           << sppRover.getCodeBiasCorrections() << ",\n";
+        mf << "  \"osbMissingCodeBiases\": "
+           << sppRover.getCodeBiasMissing() << ",\n";
         mf << "  \"sys\": \"" << jsonEscape(mode.key) << "\",\n";
         mf << "  \"sysLabel\": \"" << jsonEscape(mode.label) << "\",\n";
         mf << "  \"estimator\": \"" << jsonEscape(cfg.estimator) << "\",\n";

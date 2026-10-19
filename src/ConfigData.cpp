@@ -241,6 +241,7 @@ RTKConfigData RTKConfigData::defaults() {
     c.baseObsFile = "data/Zero-baseline/oem719-202203031500-2.obs";
     c.navFile     = "data/Zero-baseline/BRDC00IGS_R_20220620000_01D_MN.rnx";
     c.outDir      = "output/rtk";
+    c.osbFile     = "";   // no bias file; observations are left as read
     c.stopUTC     = "";   // run to the end of the file
 
     c.sys = "gps";
@@ -289,6 +290,7 @@ RTKConfigData RTKConfigData::fromIni(const std::string &path) {
     c.baseObsFile = reader.getValueAsStringOr("baseObsFile", c.baseObsFile);
     c.navFile     = reader.getValueAsStringOr("navFile", c.navFile);
     c.outDir      = reader.getValueAsStringOr("outDir", c.outDir);
+    c.osbFile     = reader.getValueAsStringOr("osbFile", c.osbFile);
     c.stopUTC     = reader.getValueAsStringOr("stopUTC", c.stopUTC);
 
     c.sys = reader.getValueAsStringOr("sys", c.sys);

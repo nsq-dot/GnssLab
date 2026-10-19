@@ -176,6 +176,19 @@ struct RTKConfigData {
     std::string navFile;
     /// Directory for the solution and diagnostics files.
     std::string outDir;
+    /**
+     * Optional SINEX-BIAS/OSB file for per-satellite, per-signal code-bias
+     * corrections, relative to the config's directory. Empty means "none",
+     * which leaves every observation as read.
+     *
+     * Only meaningful together with --sp3 and --clk: an OSB is defined relative
+     * to one analysis center's precise clock datum, and against a broadcast
+     * clock it would corrupt rather than correct. Use the orbit, clock and bias
+     * files of the same center and the same day; the GFZ MGEX OSB file, for
+     * example, carries no B2I (C7I) or B2a (C5P) records, so it cannot correct
+     * the BeiDou modes this program runs.
+     */
+    std::string osbFile;
 
     // ---- epoch control ----
     /// Stop after this epoch, as "YYYY-MM-DDTHH:MM:SS". Empty means "to the end".

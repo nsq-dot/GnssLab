@@ -7,7 +7,9 @@ python tests/test_regression_pipeline.py --required   # needs build + data/sampl
 python tests/test_apps_config_smoke.py --required     # needs build + data/sample/
 python tests/test_cycleslip_scoring.py --required     # needs build + data/sample/
 python tests/test_rtk_equations.py --required         # needs build only
+python tests/test_sinex_bias.py --required            # needs build only
 python tests/test_rtk_float_regression.py             # needs build + data/Zero-baseline/
+python tests/test_rtk_osb.py                          # + the WUM orbit/clock/OSB set
 ```
 
 They also run standalone or under pytest:
@@ -25,7 +27,9 @@ ctest --test-dir build --output-on-failure     # runs baseline_numerics
 | `test_apps_config_smoke.py` | a build; `data/sample/` for half of it | The auxiliary programs' config and command line |
 | `test_cycleslip_scoring.py` | a build + `data/sample/` | The cycle-slip detectors' scoring |
 | `test_rtk_equations.py` | a build only | The double-difference construction: what `differenceStation` / `differenceSat` drop, the single-difference weight combination, and rank deficiency |
+| `test_sinex_bias.py` | a build only | Bias-SINEX/OSB parsing: header validation, fixed-width records, ns/s/m units, half-open and multiple validity intervals, the observed−true sign, skipped DSB/station/phase records, fail-closed missing biases, and the `rtk --osb` guard |
 | `test_rtk_float_regression.py` | a build + `data/Zero-baseline/` | The RTK float solution against the original program's own output |
+| `test_rtk_osb.py` | a build + `data/Zero-baseline/` + the WUM 2022-062 orbit/clock/OSB set | BDS precise products with a matching OSB file: the SPP column improves past both the no-OSB precise run and broadcast, while the RTK float, fix decisions and accepted fixed positions stay put |
 | `test_rtk_mixed.py` | a build + `data/Zero-baseline/` | Mixed GPS + BeiDou: orbit-family classification, one reference per constellation, the family quota, both estimator paths and `--dd-cov` |
 
 The first two run on a bare checkout. That is deliberate: a contributor who has

@@ -13,6 +13,39 @@ Releases get their own section from here on.
 
 ### Added
 
+- **A Bias-SINEX/OSB reader, and `rtk --osb`, which makes BeiDou precise
+  products work.** `src/SinexBiasStore.*` reads IGS Bias-SINEX v1.00 in
+  ABSOLUTE mode: OSB records only (DSB, station-specific and phase records are
+  counted and skipped), fixed-width or whitespace-separated, units `ns`/`s`/`m`
+  converted to metres, half-open validity intervals with multiple intervals per
+  satellite/signal, and the format's `bias = observed - true` sign. The new
+  `sinex_bias` program (`gnss app sinex-bias`) prints the file's coverage and
+  bounds and can push a synthetic observation through the same correction hook.
+  `apps/rtk.cpp` gains `--osb <file>` (config key `osbFile`), accepted only with
+  `--sp3` and `--clk`: `SPPIFCode::correctCodeBias` subtracts the per-satellite,
+  per-signal bias from the **raw three-character** code observables before
+  `convertObsType()` collapses them, so C2I/C7I/C5P stay distinguishable. Phase
+  biases are deliberately not applied (the ambiguities absorb them and the
+  double difference cancels them). A startup coverage check rejects a file that
+  lacks a signal the mode observes - which is how GFZ's MGEX OSB file is caught:
+  it carries only BeiDou C2I/C6I, not C7I or C5P. Signals the file does not
+  cover are left uncorrected and counted in the manifest rather than dropping
+  the satellite, so the RTK equations keep their geometry. The manifest now
+  records the SP3, CLK and OSB paths and the correction/missing counters.
+
+  Measured on the chapter's zero baseline with the WHU/WUM 2022-062 set (7934
+  epochs, `--trop`, `--fix`, true antenna coordinate): the SPP 3-D RMS goes from
+  13.102 to **6.588 m** on BDS-2 and from 6.280 to **2.530 m** on BDS-3, both
+  better than the broadcast baselines (13.502 / 3.124 m); GPS improves from
+  2.824 to **2.346 m**. The WHU OSB has no BDS-2 GEO (C01-C05) records, so 23412
+  code observations stay uncorrected. The RTK columns barely move - float 3-D
+  RMS within 1 mm, the fix/no-fix decision identical on every epoch, accepted
+  fixed positions within 5 cm (BDS-2) and 9 mm (elsewhere) - because a satellite
+  bias cancels in the double difference; the residual movement is the changed
+  SPP linearization point. `docs/rtk.md` §4 has the tables and the reasoning;
+  `tests/test_sinex_bias.py` (synthetic fixtures, in CI) and `test_rtk_osb.py`
+  (data-gated) lock the reader and the measured result.
+
 - **Per-system and per-orbital-family code weighting for the RTK solution.**
   Six multipliers (`codeSigmaFactorGPS/BD2/BD3` and `...GEO/IGSO/MEO`, also
   available as `--sigma-factor-*`) scale the linearizer's 0.3 m code sigma:

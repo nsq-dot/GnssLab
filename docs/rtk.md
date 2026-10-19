@@ -448,6 +448,57 @@ GFZ 的北斗钟差按 **B1I/B3I 无电离层组合**定基准，广播钟差是
 但代码里**没有它的读入器**——读入 + 挂到逐卫星码观测上 + 测试，是一道习题的量级（见第十三节）。
 **在它做好之前，北斗那两列保持广播是对的**：广播 + TGD 至少自洽。
 
+**2026-10-19 补：OSB 读入器做好了，北斗精密产品通了。** 结论先说：同一套 WHU/WUM 产品的
+精密轨道 + 钟差 + OSB 下，北斗两列的 SPP 三维 RMS 从 **13.102 / 6.280 m**（只有精密轨道
+钟差、没有 OSB）降到 **6.588 / 2.530 m**（北斗二号 / 北斗三号），**都优于广播的
+13.502 / 3.124 m**；GPS 对照也从 2.824 m 降到 2.346 m。
+
+**GFZ 那份 OSB 为什么不能用。** 镜像上的 `GBM…_OSB.BIA` 只给**钟差基准信号**：GPS
+C1W/C2W、Galileo C1C/C5Q、**北斗只有 C2I/C6I**。程序观测的是 C2I+C7I（北斗二号）和
+C2I+C5P（北斗三号），这两种信号在 GFZ 文件里根本没有记录，所以它修不了这两列。WHU 的
+`WUM…_OSB.BIA` 是完整的一套：北斗二号有 C2I/C6I/C7I，北斗三号有 C1P/C1X/C2I/C5P/C5X/
+C6I/C7Z/C7D/C8X；同一目录下还有配套的 WUM 轨道与钟差，三者必须同属一个分析中心、同一天。
+把一家中心的 OSB 配另一家的钟差，GPS C1W 已经实测差 0.5 ns，不推荐。
+
+**怎么用的。** 新增 `src/SinexBiasStore.*`（读 Bias-SINEX v1.00），`rtk` 新增
+`--osb <file>`（配置键 `osbFile`，必须与 `--sp3`/`--clk` 同时给）。改正发生在
+`convertObsType()` **之前**：OSB 按"信号 + 跟踪码"（C2I、C7I、C5P）定义，截成 C2/C7/C5
+之后就分不出来了。符号按格式定义 `bias = observed − true`，即**改正后 = 原始 − OSB**。
+只改码不改相位：SPP 的每星模糊度会把卫星相位偏置整段吸收，RTK 的双差又会把卫星偏置消掉，
+应用相位 OSB 不改变坐标。文件没覆盖到的信号保持原值并记入 manifest（`osbMissingCodeBiases`），
+不删卫星——删卫星会改变双差几何，把"绝对解改正"和"相对解换模型"混在一起。
+
+**实测**（零基线、7934 历元、`--trop`、`--base-xyz` 真值、`--fix`；参考天线的真坐标）：
+
+| 配置 | 北斗二号 SPP 3D-RMS | 北斗三号 SPP 3D-RMS | GPS SPP 3D-RMS |
+|---|---|---|---|
+| 广播（`--bds-tgd`；GPS 用 CODE 精密） | 13.502 m（偏差 9.379、散布 9.713） | 3.124 m（1.713、2.612） | 2.844 m |
+| WUM 精密，无 OSB | 13.102 m（4.140、12.432） | 6.280 m（3.451、5.247） | 2.824 m（0.105、2.822） |
+| WUM 精密 + OSB | **6.588 m**（3.032、5.849） | **2.530 m**（1.337、2.148） | **2.346 m**（1.594、1.721） |
+
+**为什么 OSB 是对的。** WHU 文件头写明北斗钟差基准是 `C  C2I  C6I`；把 C2I 与 C6I 的 OSB
+按无电离层系数（2.94334、−1.94334）合成，每颗星都是 **0.0002 ns 量级**——正好为零，这就是
+"OSB 与钟差同一基准"的数值判据（`tests/test_sinex_bias.py` 里有一条断言锁住它）。而被忽略
+的逐星改正量并不小：按无电离层组合折算，北斗二号的 C2I/C7I 组合在 **−2.96 至 +0.22 m**
+之间，北斗三号的 C2I/C5P 组合在 **−9.08 至 +6.47 m** 之间——和上面"无 OSB 时散布变大"的
+现象对得上。
+
+**WHU 文件没有北斗二号 GEO（C01–C05）的记录。** 这份数据里 C01–C04 可见，每个历元两条码，
+共 23412 条码观测（11706 个卫星·历元 × 2 个信号）保持未改正，manifest 的
+`osbMissingCodeBiases` 记的就是这个数。BDS 两列仍大幅改善，因为可用的六颗北斗二号
+（C06/C07/C09/C10/C12/C16）与北斗三号都覆盖到了。
+
+**RTK 那一列：卫星偏置在双差里抵消，但线性化点变了。** 同一组精密产品加不加 `--osb`，
+RTK 浮点解的三维 RMS 是 1.1263 → 1.1256 m（北斗二号）、0.0789 → 0.0792 m（北斗三号）、
+0.1774 → 0.1775 m（GPS）；逐历元最大变化 42 mm / 7 mm / 5 mm。固定/不固定**判定逐历元完全
+相同**（82.1% / 100% / 100%），被接受的固定解位置最多移动 50 mm / 9 mm / 8 mm。这些都不是
+偏置进入了双差，而是 SPP 初值移动后，卫星位置、地球自转和高度角权重的二阶效应；北斗二号
+几何最差，所以变化最大。反过来，固定解相对真值的 RMS 是 0.0257 → 0.0146 m（北斗二号）、
+0.0104 → 0.0118 m（北斗三号）、0.0181 → 0.0156 m（GPS）——逐星改正让个别边缘历元选到了
+不同的整周向量，这是副产品，不是本节主张精度提升的依据。
+
+复现命令见第十四节末尾。
+
 **单点定位到此为止**：上表最后一档 2.84 m 是"纯码解"的现实水平（第六章那 2.76 m 是同一
 量级，且是更短窗口上的离散度）。**再往下必须用载波**——第八节的固定解是 0.011–0.030 m、
 第十节的卡尔曼浮点解是 0.024–0.106 m，那才是相位真正约束坐标之后的结果。
@@ -1297,12 +1348,14 @@ TRUE="-2267803.4464,5009342.4841,3220991.0095"
   相位按系统/类型定权或改整周模型，不是继续调码 σ。另外 `SPPIFCode`（单点程序）仍是
   一个标量 σ，`noiseBD2Code` / `noiseBD3Code` 这些配置键在 SPP 侧依旧不生效；12.4 的
   权重只作用于 RTK 的双差系统。
-- **北斗精密产品：产品下到了，卡在 DCB。** 含北斗的 MGEX 产品（GFZ `GBM0MGXRAP_20220620000_…`）
-  已在 `data/`，读入器直接认，但**直接换进去北斗两列反而更差**（北斗三号 SPP 3.124 → 6.176 m，
-  北斗二号 13.502 → 20.751 m），而同一份产品解 GPS 正常（2.878 m vs CODE 的 2.844 m）。
-  根因是钟差基准/码间偏差不匹配——GFZ 的北斗钟差按 B1I/B3I 组合定基准，与广播的 B3I+TGD
-  差一个**逐星 DCB**（散布同时变大就是判据）。修它要先写一个 **SINEX-BIAS / OSB 读入器**
-  并把偏置挂到逐卫星码观测上，见第四节末的实测表。
+- **北斗精密产品：已解决，但不是"随便哪家的 OSB 都行"。** `--sp3/--clk/--osb` 三件套同属
+  WHU/WUM、同一天时，北斗二号/三号的 SPP 三维 RMS 是 **6.588 / 2.530 m**，都优于广播的
+  13.502 / 3.124 m（第四节末的实测表）。剩下的边界：**只用码 OSB**（相位偏置被模糊度吸收、
+  在双差里抵消，不应用）；只接受 **ABSOLUTE** 模式，DSB 与测站相关的记录跳过；一个文件只覆盖
+  一天，且必须与轨道/钟差同分析中心、同一天；GFZ 的 MGEX OSB 只有 C2I/C6I，没有 C7I/C5P，
+  对本程序的两种北斗模式**不可用**（启动时的覆盖检查会直接报错）；WHU 的 OSB 没有北斗二号
+  GEO（C01–C05）记录，这些星保持未改正（manifest 里有计数）。读入器的解析/符号/区间/单位
+  由 `tests/test_sinex_bias.py` 锁定，实测结果由数据门控的 `tests/test_rtk_osb.py` 锁定。
 
 **已知局限**：
 
@@ -1329,7 +1382,8 @@ TRUE="-2267803.4464,5009342.4841,3220991.0095"
 - 零基线（见第四节末）：结论不能外推到普通基线。
 - 上一条顺带的推论：**在零基线上，「绝对解」的任何逐卫星误差都会被双差吃掉**，
   所以本章的 RTK 结果再准也**不能用来验证卫星轨道、钟差或传播改正**——
-  它验证的是相对几何。要验证绝对那一层，需要非零基线或精密产品。
+  它验证的是相对几何。要验证绝对那一层，看 `spp:` 列（现在的 6.588 / 2.530 / 2.346 m
+  就是 OSB 改正后的绝对解结果），或者需要非零基线。
 - BDS-2 与 BDS-3 的接收机钟差系统差与**卫星钟差基准**只做了一半：本节的三种配置
   各自都是单代，所以这个问题没暴露；跨代混解见第九节。
 - `SolverLSQ::getSolution` 原先在**解引用之后**才检查是否越界（空未知数集合会
@@ -1375,6 +1429,32 @@ python tests/test_rtk_plot.py                # 出图那条路，不需要数据
 ./build/bin/rtk config/rtk.ini --sys gps  --fix --trop --sp3 $SP3 --clk $CLK --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
 ./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
 ./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --dd-cov --out-dir output/rtk-ddcov/full
+
+# 树 4：北斗精密产品 + OSB（第四节末 2026-10-19 的表）。
+# 三件套从 WHU 镜像下载（直连即可），必须同一天、同一分析中心：
+#   https://data.bdsmart.cn/pub/product/gnss/WHU/2022/orbit/WUM0MGXRAP_20220620000_01D_05M_ORB.SP3.gz
+#   https://data.bdsmart.cn/pub/product/gnss/WHU/2022/clock/WUM0MGXRAP_20220620000_01D_30S_CLK.CLK.gz
+#   https://data.bdsmart.cn/pub/product/gnss/WHU/2022/bias/WUM0MGXRAP_20220620000_01D_01D_OSB.BIA.gz
+WSP3=data/WUM0MGXRAP_20220620000_01D_05M_ORB.SP3
+WCLK=data/WUM0MGXRAP_20220620000_01D_30S_CLK.CLK
+WOSB=data/WUM0MGXRAP_20220620000_01D_01D_OSB.BIA
+
+# 三个配置各自一个兄弟目录（同名文件 + 递归搜索「长的赢」会混在一起）
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-osb/bcast
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --bds-tgd --base-xyz $TRUE --out-dir output/rtk-osb/bcast
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --sp3 $WSP3 --clk $WCLK --base-xyz $TRUE --out-dir output/rtk-osb/precise
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --sp3 $WSP3 --clk $WCLK --base-xyz $TRUE --out-dir output/rtk-osb/precise
+./build/bin/rtk config/rtk.ini --sys bds2 --fix --trop --sp3 $WSP3 --clk $WCLK --osb $WOSB --base-xyz $TRUE --out-dir output/rtk-osb/osb
+./build/bin/rtk config/rtk.ini --sys bds3 --fix --trop --sp3 $WSP3 --clk $WCLK --osb $WOSB --base-xyz $TRUE --out-dir output/rtk-osb/osb
+# GPS 对照
+./build/bin/rtk config/rtk.ini --sys gps --fix --trop --sp3 $WSP3 --clk $WCLK --base-xyz $TRUE --out-dir output/rtk-osb/gps-precise
+./build/bin/rtk config/rtk.ini --sys gps --fix --trop --sp3 $WSP3 --clk $WCLK --osb $WOSB --base-xyz $TRUE --out-dir output/rtk-osb/gps-osb
+
+# 读入器自检：记录数、覆盖信号、C2I/C6I 的无电离层组合是否为零
+./build/bin/sinex_bias --osb $WOSB
+# 数字表、符号、单位、区间与「RTK 不变」的断言（数据门控，CI 不跑）
+python tests/test_sinex_bias.py --required
+python tests/test_rtk_osb.py
 
 # 出图与数字表（本文十六张图即由这一行生成，图片与文档同为中文）。
 # --ref-xyz 是必须的：不给它，参考坐标就退回基准站表头（那个偏了 24.9 m 的值），图和表都对不上。

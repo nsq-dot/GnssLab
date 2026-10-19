@@ -153,8 +153,9 @@ changes the label without changing the `_pos_vel.out` name.
 |---|---|---|
 | RINEX observation (`.rnx`, `.obs`) | `src/RinexObsReader.cpp` | Versions 2.11 through 4.00 |
 | RINEX navigation (`.rnx`) | `src/RinexNavStore.cpp` | GPS and BeiDou |
-| SP3 precise orbit | `src/SP3Store.cpp` | Used by `bds_eph` / `bds_gps_diff` |
-| CLK precise clock | `src/Rx3ClockReader.cpp` | Used by `bds_gps_diff` |
+| SP3 precise orbit | `src/SP3Store.cpp` | Used by `rtk --sp3`, `bds_eph` / `bds_gps_diff` |
+| CLK precise clock | `src/Rx3ClockReader.cpp` | Used by `rtk --clk`, `bds_gps_diff` |
+| Bias-SINEX / OSB (`.BIA`) | `src/SinexBiasStore.cpp` | Used by `rtk --osb`, inspected by `sinex_bias`; ABSOLUTE mode, OSB records, code observables only |
 
 Hatanaka-compressed (`.crx` / `.d`) files must be expanded first — see
 `tools/README.md`.

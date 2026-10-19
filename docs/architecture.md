@@ -54,7 +54,7 @@ and `examples/` linking against it.
 | Coordinates | `CoordStruct.h`, `CoordConvert.h` |
 | Core data | `GnssStruct.*` — `SatID`, `ObsID`, observational data |
 | Algorithms | `GnssFunc.*` — satellite position/clock, error models |
-| Product readers | `RinexObsReader.*`, `RinexNavStore.*`, `NavEphGPS.*`, `NavEphBDS.*`, `SP3Store.*`, `Rx3ClockReader.*`, `EphStore.h` |
+| Product readers | `RinexObsReader.*`, `RinexNavStore.*`, `NavEphGPS.*`, `NavEphBDS.*`, `SP3Store.*`, `Rx3ClockReader.*`, `SinexBiasStore.*`, `EphStore.h` |
 | Estimation | `SolverLSQ.*`, `SPPIFCode.*`, `SPPVelocity.*` |
 | Not yet wired | `SolverKalman.*`, `KalmanFilter.*`, `ARLambda.*` |
 | Configuration | `ConfigData.*`, `ConfigReader.*` |

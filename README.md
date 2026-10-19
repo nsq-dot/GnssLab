@@ -149,9 +149,14 @@ See [docs/cli.md](docs/cli.md) and [`config/README.md`](config/README.md).
 - **No per-system weighting in the SPP program, and no phase weighting.** The
   RTK solver has per-system / per-orbital-family code sigma factors; their
   phase sigma is still uniform, and `spp_if` still carries one code sigma.
-- **No BeiDou precise products yet.** The MGEX orbit and clock load, but the
-  BDS clock uses a different bias datum (DCB); broadcast remains the
-  self-consistent choice until an OSB reader exists.
+- **BeiDou precise products only with their matching OSB file.** MGEX orbit and
+  clock files load, but a BDS clock is referred to the C2I/C6I combination while
+  the solver observes C2I/C7I (BDS-2) or C2I/C5P (BDS-3). `rtk --sp3 ... --clk
+  ... --osb <file>` applies the per-satellite code biases; without it the BDS
+  columns get worse, not better. The bias file must come from the same analysis
+  center and day as the orbit and clock (GFZ's MGEX OSB carries no BDS C7I or
+  C5P, WHU's WUM set does). Code biases only: phase OSBs are absorbed by the
+  ambiguities and cancel in the double difference.
 
 [`docs/roadmap.md`](docs/roadmap.md) has the full list, including known issues
 and suggested next steps.

@@ -46,17 +46,20 @@ Stated plainly, because a reader should not have to infer it from the source:
   applies on the single-frequency path. The default dual-frequency
   ionosphere-free combination removes the first-order ionospheric delay by
   construction.
-- **The BDS columns cannot use precise satellite products yet.** The loader
-  accepts the GFZ MGEX orbit and clock unchanged — they carry `C01…C60` — but
-  swapping them in makes both BDS columns *worse*: SPP 3D-RMS 3.124 → 6.176 m on
-  BDS-3 and 13.502 → 20.751 m on BDS-2, with the scatter growing too. That is the
-  signature of a per-satellite code bias rather than a datum shift: GFZ's BDS
-  clock is referenced to the B1I/B3I combination, while the broadcast clock the
-  solver assumes is B3I plus TGD. GPS is unaffected by the same products (GBM
-  gives 2.878 m against CODE's 2.844 m). Fixing it needs a SINEX-BIAS/OSB reader
-  and a per-signal correction on the code observations; until then the broadcast
-  clock is the self-consistent choice for BDS. See `rtk.md` §4 for the measured
-  table.
+- **BDS precise products require a matching OSB file, and only code biases are
+  applied.** Swapping in MGEX orbit and clock alone makes both BDS columns worse
+  (BDS-3 SPP 3D-RMS 3.124 → 6.280 m, BDS-2 13.502 → 13.102 m) because the AC's
+  BDS clock is referred to C2I/C6I while the solver observes C2I/C7I or C2I/C5P.
+  `rtk --sp3 ... --clk ... --osb ...` applies the per-satellite code biases;
+  with the WHU WUM set the same runs reach 2.530 m and 6.588 m. The bias file
+  must come from the same analysis center and day as the orbit and clock: GFZ's
+  MGEX OSB file carries only C2I/C6I for BeiDou - no C7I, no C5P - so it cannot
+  correct either mode. Phase OSBs are ignored (the ambiguities absorb them and
+  the double difference cancels them), DSB and station-specific records are
+  skipped, RELATIVE-mode files are rejected, and a file covers one day. The WHU
+  product also has no BDS-2 GEO (C01–C05) records, so those satellites stay
+  uncorrected and are counted in the manifest. See `rtk.md` §4 for the measured
+  table and the OSB contract.
 
 ## Known issues
 

@@ -8,6 +8,8 @@
 #include "EphStore.h"
 #include <Eigen/Eigen>
 
+class SinexBiasStore;
+
 class SPPIFCode {
 public:
 
@@ -18,8 +20,9 @@ public:
     };
 
     SPPIFCode()
-    : pEphStore(NULL), isRover(true), sigIFCode(1.0), cutOffElev(10),
-    enableTrop(true), enableBDSTGD(true),solveMode(DUAL_IF_COMB)
+    : cutOffElev(10), isRover(true), sigIFCode(1.0),
+    enableTrop(true), enableBDSTGD(true), solveMode(DUAL_IF_COMB),
+    pEphStore(NULL), pBiasStore(NULL)
     {}
 
     void setStationAsBase()
@@ -39,6 +42,14 @@ public:
     void setEphStore(EphStore* pStore)
     {
         pEphStore = pStore;
+    };
+
+    // Per-signal code-bias corrections (SINEX-BIAS OSB). Only meaningful with a
+    // precise clock whose datum the bias product is referred to; a null store
+    // leaves every observation exactly as read.
+    void setBiasStore(SinexBiasStore* pStore)
+    {
+        pBiasStore = pStore;
     };
 
     void setIFCodeTypes(std::map<string, std::pair<string, string>>& ifTypes)
@@ -74,8 +85,22 @@ public:
                       std::map<SatID,Xvt>& satXvtRecTime,
                       SatValueMap& satElevData);
 
+    void correctCodeBias(ObsData &obsData);
     void correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTime);
     void convertObsType(ObsData &obsData);
+
+    /**
+     * Whether one raw code observable of a satellite needs an OSB correction.
+     *
+     * The base class says yes for every code observable. SPPUCCodePhase
+     * overrides it to consider only the code pair the satellite will actually
+     * use: an observable outside that pair never reaches an equation, so
+     * counting it as "missing a bias" would inflate the manifest's counter with
+     * observations that could not have been corrected or used.
+     */
+    virtual bool needsCodeBias(const SatID &sat,
+                               const TypeValueMap &obs,
+                               const std::string &obsType3) const;
     void processObs(ObsData &obsData);
     std::map<SatID,Xvt> earthRotation(Eigen::Vector3d& xyz,
                                       std::map<SatID,Xvt> & satXvtTransTime);
@@ -132,6 +157,10 @@ public:
 
     Result getResult();
 
+    // Diagnostics for the OSB path. Zero whenever no bias store is attached.
+    long getCodeBiasCorrections() const { return codeBiasCorrections; }
+    long getCodeBiasMissing() const { return codeBiasMissing; }
+
     ~SPPIFCode(){};
 
     // 继承类需要访问这个成员
@@ -165,6 +194,14 @@ protected:
     // that exists below the app layer), an SP3Store when a run was handed
     // precise products. Typed as the interface so both fit.
     EphStore* pEphStore;
+
+    // Optional OSB store. Null is the default and the byte-anchored path.
+    SinexBiasStore* pBiasStore;
+
+    // Diagnostics for the manifest: corrections applied and code observations
+    // the bias file did not cover (left uncorrected).
+    long codeBiasCorrections = 0;
+    long codeBiasMissing = 0;
 
     // 测速解算实例
     SPPVelocity velSolver;

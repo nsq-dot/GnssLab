@@ -33,7 +33,36 @@
 #define SIG_UC_CODE 0.3
 #define SIG_UC_PHASE 0.003
 
+bool SPPUCCodePhase::needsCodeBias(const SatID &sat,
+                                   const TypeValueMap &obs,
+                                   const std::string &obsType3) const
+{
+    const auto sysIt = dualCodeTypes.find(sat.system);
+    if (sysIt == dualCodeTypes.end()) return false;
+
+    // dualCodeTypes holds the collapsed two-character names; the observation
+    // map still has the raw three-character ones at this point.
+    const string band = obsType3.substr(0, 2);
+    for (const auto &pair : sysIt->second)
+    {
+        bool hasFirst = false, hasSecond = false;
+        for (const auto &tv : obs)
+        {
+            const string b = tv.first.substr(0, 2);
+            if (b == pair.first)  hasFirst = true;
+            if (b == pair.second) hasSecond = true;
+        }
+        if (hasFirst && hasSecond)
+            return band == pair.first || band == pair.second;
+    }
+    return false;
+}
+
 void SPPUCCodePhase::solve(ObsData &obsData) {
+    // OSB 改正必须先于 convertObsType：它按 3 字符的原始观测类型（C2I、C7I、
+    // C5P）查表，截成 C2/C7/C5 之后就分不出来了。没有偏置文件时立即返回。
+    correctCodeBias(obsData);
+
     //----------------------
     // 去掉通道号，C1W, C1C => C1;
     // 后面computeSatPos里用与通道号无关的观测值计算卫星发射时刻位置

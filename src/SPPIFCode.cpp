@@ -1,6 +1,7 @@
 #include "SPPIFCode.h"
 #include "SPPVelocity.h"
 #include "CoordConvert.h"
+#include "SinexBiasStore.hpp"
 #include <Eigen/Eigen>
 
 // 诊断默认关闭：这些块在逐历元、逐观测值的循环里，1 Hz 的整日文件上输出极大。
@@ -16,6 +17,11 @@
 #define debug GNSSLAB_DEBUG_SPP
 
 void SPPIFCode::solve(ObsData &obsData) {
+    // OSB 改正必须在 convertObsType 之前：OSB 是按“信号 + 跟踪码”定义的
+    // （C2I、C7I、C5P），而 convertObsType 会把它们截成 C2、C7、C5，之后
+    // 同一频点的不同跟踪码就无法区分了。没有偏置文件时这个函数立即返回。
+    correctCodeBias(obsData);
+
     //----------------------
     // 去掉通道号，C1W, C1C => C1;
     // 后面computeSatPos里用与通道号无关的观测值计算卫星发射时刻位置
@@ -220,8 +226,54 @@ noexcept(false) {
     return xvt;
 };
 
+bool SPPIFCode::needsCodeBias(const SatID &, const TypeValueMap &,
+                              const std::string &) const
+{
+    return true;
+}
+
+void SPPIFCode::correctCodeBias(ObsData &obsData)
+{
+    if (pBiasStore == NULL) return;
+
+    // Correct what the file covers and leave the rest alone. Dropping a
+    // satellite instead would be defensible for the absolute solution, but it
+    // also removes it from the double differences - where an OSB cancels
+    // anyway - so the RTK column would move for a reason that has nothing to
+    // do with the bias correction. The WHU product, for one, has no BDS-2 GEO
+    // (C01-C05) records at all, and those satellites are in this data set.
+    // The missing counter is recorded in the manifest so the coverage gap is
+    // visible rather than silent.
+    for (auto &stv : obsData.satTypeValueData)
+    {
+        const SatID sat = stv.first;
+        for (auto &tv : stv.second)
+        {
+            if (tv.first.empty() || tv.first[0] != 'C') continue;  // code only
+            if (!needsCodeBias(sat, stv.second, tv.first)) continue;
+            double osb = 0.0;
+            if (tv.first.size() != 3 ||
+                !pBiasStore->getOsb(sat, tv.first, obsData.epoch, osb))
+            {
+                ++codeBiasMissing;
+                continue;
+            }
+            // SINEX-BIAS defines bias = observed - true, so the corrected
+            // observation is the raw one minus the bias (already in metres).
+            tv.second -= osb;
+            ++codeBiasCorrections;
+        }
+    }
+}
+
 void SPPIFCode::correctTGD(ObsData &obsData, std::map<SatID,Xvt>& satXvtTransTime)
 {
+    // OSB and broadcast TGD are alternative corrections to two different clock
+    // datums. Applying both would double-correct; an OSB file is only accepted
+    // together with precise products, where the broadcast TGD data is absent
+    // anyway, but make the intent unconditional.
+    if (pBiasStore != NULL) return;
+
     // 下面每一处打印都走 debug 门（本文件顶部的 GNSSLAB_DEBUG_SPP）。这个函数在
     // 逐历元逐卫星的循环里，而 RTK 那条路现在也会调用它——1 Hz 的整日文件上不打门
     // 就是几万行 stdout。打印不参与任何数值计算。

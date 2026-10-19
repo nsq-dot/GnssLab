@@ -33,6 +33,14 @@ public:
 
     void checkDualCodeTypes(ObsData &obsData);
 
+    // Only the raw observables that belong to a code pair this satellite can
+    // actually complete need an OSB. Everything else is dropped by
+    // checkDualCodeTypes() further down anyway, so it would only inflate the
+    // missing-bias counter with observations that never reach an equation.
+    bool needsCodeBias(const SatID &sat,
+                       const TypeValueMap &obs,
+                       const std::string &obsType3) const override;
+
     void setDualCodeTypes(std::map<string, std::vector<std::pair<string, string>>>& types)
     {
         dualCodeTypes = types;

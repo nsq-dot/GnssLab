@@ -354,7 +354,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "to 0.1 m, and near-constant over the run. Read sigma as the "
             "precision and the bias as that offset. This describes the RTK "
             "column only; the SPP column's offset is its own error, not a datum "
-            "term (0.01 / 9.4 / 1.7 m on this data — section 4).",
+            "term (0.01 / 3.0 / 1.3 m on this data — section 4).",
         "rpt_rtk_note_ratio":
             "Note 2 — the SPP/RTK ratio is NOT reference-independent. Both "
             "columns are measured against the same reference, but the RTK "
@@ -625,7 +625,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "返回（不再迭代），流动站则迭代到 |dxyz| < 0.1 m 即判收敛。因此每个历元的结果 = "
             "该基准坐标 + 流动站最后一次未收敛的改正数，最大 0.1 m 且整段近似为常数。σ 才是"
             "精度，偏差应理解为这一偏移量。这一条只说 RTK 那一列；SPP 那一列的偏移是它自己的"
-            "误差，不是基准项（本数据 0.01 / 9.4 / 1.7 m，见第四节）。",
+            "误差，不是基准项（本数据 0.01 / 3.0 / 1.3 m，见第四节）。",
         "rpt_rtk_note_ratio":
             "说明 2 —— SPP/RTK 比值不是与参考坐标无关的数。两列都对同一个参考坐标度量，但 "
             "RTK 那一列是建立在这个基准站坐标之上的：双差把流动站解到基准站上去，所以那个坐标"

@@ -169,7 +169,7 @@ the reference coordinate* and each panel annotates the offset alongside the RMS.
 Two things have to be said next to it: the RTK column is `xyzRover + dxyzRTK`
 against a base station that is itself defined by that reference coordinate, so
 its offset is structural rather than an accuracy claim; and the SPP column's
-offset (0.01 / 9.4 / 1.7 m on this data) is its own error, not a datum term.
+offset (0.01 / 3.0 / 1.3 m on this data) is its own error, not a datum term.
 `--ref-xyz` is what that reference is; omit it and it falls back to the base
 station's RINEX header, which on this equipment is 24.9 m from the antenna and
 makes both columns read ~25 m. The same two columns with the offsets removed —

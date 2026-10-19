@@ -42,9 +42,12 @@ Releases get their own section from here on.
   RMS within 1 mm, the fix/no-fix decision identical on every epoch, accepted
   fixed positions within 5 cm (BDS-2) and 9 mm (elsewhere) - because a satellite
   bias cancels in the double difference; the residual movement is the changed
-  SPP linearization point. `docs/rtk.md` §4 has the tables and the reasoning;
-  `tests/test_sinex_bias.py` (synthetic fixtures, in CI) and `test_rtk_osb.py`
-  (data-gated) lock the reader and the measured result.
+  SPP linearization point. The chapter's §4 table and the four figure-8-1
+  panels now use the WUM+OSB configuration; §8 onward keep the broadcast-BDS
+  tree because their double-difference results are unchanged. `docs/rtk.md` §4
+  has the tables and the reasoning; `tests/test_sinex_bias.py` (synthetic
+  fixtures, in CI) and `test_rtk_osb.py` (data-gated) lock the reader and the
+  measured result.
 
 - **Per-system and per-orbital-family code weighting for the RTK solution.**
   Six multipliers (`codeSigmaFactorGPS/BD2/BD3` and `...GEO/IGSO/MEO`, also

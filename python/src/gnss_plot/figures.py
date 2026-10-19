@@ -923,11 +923,11 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     * The RTK column is tied to that reference **by construction**:
       ``apps/rtk.cpp`` writes ``rtk: = xyzRover + dxyzRTK``, and the double
       difference resolves the rover relative to the base station, whose
-      position is whatever coordinate the solver was given. Its 0.026-0.028 m
+      position is whatever coordinate the solver was given. Its 0.01-0.03 m
       offset is the double difference's own residual (the zero baseline is a
       physical zero), not evidence that the method is accurate to 3 cm.
     * The SPP column is an absolute solution, and its offset is its own error
-      rather than a datum term (0.01 / 9.4 / 1.7 m on this data). The offset is
+      rather than a datum term (0.01 / 3.0 / 1.3 m on this data). The offset is
       annotated on every panel for exactly this reason: ``annot_rtk_vs_rms``
       prints it next to the RMS it is part of, so the gap between the two bands
       can be read as the offset it largely is.
@@ -936,10 +936,10 @@ def fig_rtk_spp_vs_rtk_ts(modes, out_png, rover="", lang="en"):
     comparison - the same two columns with their offsets removed, which is what
     answers "how repeatable is each solution", and where part of what is left
     turns out to be a slow drift rather than noise. Those numbers live in
-    section four's table and prose (16x / 9x / 35x centred, 3.7x / 5.1x / 3.3x
-    epoch-to-epoch), next to the 16x / 12x / 40x this panel annotates.
+    section four's table and prose (16x / 5.2x / 29x centred, 3.7x / 3.5x / 3.2x
+    epoch-to-epoch), next to the 16x / 5.9x / 32x this panel annotates.
 
-    **The axis is linear, and that is the point.** SPP's 3-D RMS is 2.8-13.5 m
+    **The axis is linear, and that is the point.** SPP's 3-D RMS is 2.5-6.6 m
     and RTK's is 0.08-1.13 m: the RTK band lies in the bottom few percent of the
     window while the SPP band runs across the top of it, and the reader can see
     both *how large* the SPP error is and that the differential solution is two
@@ -1516,7 +1516,7 @@ def fig_rtk_dd_cov_ratio_ts(panels, out_png, rover="", lang="en", threshold=3.0)
 # then BDS-3. An earlier attempt gave each series a lane of its own, one above
 # the other, and was rejected outright: "the whole point of a comparison figure
 # is that both curves are in the same picture". Two lanes on two scales cannot
-# be read against each other at all, and the distance between them - 12x to 40x,
+# be read against each other at all, and the distance between them - 5.9x to 32x,
 # and a ratio of two things that do not measure the same quantity - invites a
 # reading the chapter spends a section retracting. What the direction split buys
 # instead is the y scale: an ENU triple spans an order of magnitude (BDS-2's
@@ -1898,7 +1898,7 @@ def fig_rtk_spp_vs_rtk_dir_ts(modes, out_png, rover="", lang="en", direction=0):
     **The two series share one axis, undecimated, both drawn as thin unmarked
     lines** - the parent's own style, and the only one that reads at 6556 points
     a series. What a shared axis cannot carry is how far apart the two are,
-    12-40x on this data; each curve prints its own bias/sigma/RMS in its own
+    5.9-32x on this data; each curve prints its own bias/sigma/RMS in its own
     corner instead, and the parent figure and section four's table keep the
     ratio. Two lanes on two scales, one per series, were tried and rejected:
     that is no comparison at all.
